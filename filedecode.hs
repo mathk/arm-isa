@@ -1,25 +1,34 @@
 -- http://www.haskell.org/haskellwiki/Dealing_with_binary_data
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as C
 import Text.Printf
-import Data.Binary.Strict.Get
+import qualified Data.Binary.Strict.Get as G
 import qualified Data.Binary.Strict.BitGet as BG
+import Data.Binary.Strict.Util
 import Data.Word
 
-dh :: Get (Word32, Word32, Word32)
-dh = do
-	alen <- getWord32be
-	plen <- getWord32be
-	chksum <- getWord32be
-	return (alen, plen, chksum)
+data ELF_Header_Magic = ELF_Header_Magic Word8 String
 
-parseElfHeader :: BG.BitGet Word8
-parseElfHeader = BG.getAsWord8 8
+parseElfHeaderMagic :: G.Get ELF_Header_Magic
+parseElfHeaderMagic = do 
+	magicByte <- G.getWord8 
+	magicString <- G.getByteString 3
+	return $ ELF_Header_Magic magicByte (C.unpack magicString)
+
+parseElfClass :: G.Get Word8
+parseElfClass = G.getWord8
 
 main :: IO ()
 main = do 
 	input <- B.readFile "linker"
-	case BG.runBitGet input parseElfHeader of
-		Right a -> putStrLn $ printf "0x%02X" a
-		Left a -> putStrLn ""
+	let r = G.runGet parseElfHeaderMagic input 
+	case fst r of
+		Right (ELF_Header_Magic magic0 magic1) -> do 
+			putStrLn $ printf "0x%02X" magic0
+			putStrLn magic1
+			case fst $ G.runGet parseElfClass (snd r) of
+				Right a -> putStrLn $ printf "%d" a
+				Left a -> putStrLn a
+		Left a -> putStrLn a
 	
 
