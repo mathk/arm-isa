@@ -18,10 +18,23 @@ parseElfHeaderMagic = do
 parseElfClass :: G.Get Word8
 parseElfClass = G.getWord8
 
-main :: IO ()
+(>>?) :: (Either String b, B.ByteString) -> (B.ByteString -> b -> IO (Either String c, B.ByteString)) -> IO (Either String c, B.ByteString)
+(Right r, c) >>? f  = f c r
+(Left a, c) >>? f = do return (Left a, c) 
+
+parse :: B.ByteString -> IO (Either String Word8, B.ByteString)
+parse input = G.runGet parseElfHeaderMagic input >>? 
+	(\c (ELF_Header_Magic w t) -> do 
+		putStrLn $printf "0x%02X" w
+		return $ G.runGet parseElfClass c)
+
 main = do 
 	input <- B.readFile "linker"
-	let r = G.runGet parseElfHeaderMagic input 
+	(a, _) <- parse input
+	case a of 
+		Right _ -> putStrLn "Parse succeed"
+		Left d -> putStrLn d
+{-	let r = G.runGet parseElfHeaderMagic input 
 	case fst r of
 		Right (ELF_Header_Magic magic0 magic1) -> do 
 			putStrLn $ printf "0x%02X" magic0
@@ -31,4 +44,4 @@ main = do
 				Left a -> putStrLn a
 		Left a -> putStrLn a
 	
-
+-}
