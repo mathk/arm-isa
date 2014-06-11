@@ -1,10 +1,10 @@
 -- http://www.haskell.org/haskellwiki/Dealing_with_binary_data
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
-import Text.Printf
 import qualified Data.Binary.Strict.Get as G
 import qualified Data.Binary.Strict.BitGet as BG
 import Data.Binary.Strict.Util
+import Text.Printf
 import Data.Word
 
 data ELF_Header_Magic = ELF_Header_Magic Word8 String
