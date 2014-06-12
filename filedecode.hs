@@ -8,6 +8,7 @@ import Data.Int (Int64)
 import Text.Printf
 import Data.Word
 
+{- Data type -}
 data ParseState = ParseState {
         string :: B.ByteString,
         offset :: Int64
@@ -22,12 +23,7 @@ newtype Parse a = Parse {
         runParse :: ParseState -> Either String (a, ParseState)
     }
 
-getState :: Parse ParseState
-getState = Parse (\s -> Right (s, s))
-
-putState :: ParseState -> Parse ()
-putState s = Parse (\_ -> Right((), s))
-
+{- Parser composition -}
 (==>) :: Parse a -> (a -> Parse b) -> Parse b
 firstParser ==> secondParser = Parse chainedParser
     where chainedParser initState = 
@@ -36,12 +32,20 @@ firstParser ==> secondParser = Parse chainedParser
                 Right (firstResult, newState) ->
                     runParse (secondParser firstResult) newState
 
+{- Parser Utils -}
+getState :: Parse ParseState
+getState = Parse (\s -> Right (s, s))
+
+putState :: ParseState -> Parse ()
+putState s = Parse (\_ -> Right((), s))
+
 bail :: String -> Parse a
 bail err = Parse $ \s -> Left $ "byte offset" ++ show (offset s) ++ ": " ++ err
 
 identity :: a -> Parse a
 identity a = Parse (\s -> Right (a, s))
 
+{- Parse Byte -}
 parseByte :: Parse Word8
 parseByte =
     getState ==> \initState ->
@@ -53,35 +57,17 @@ parseByte =
                                              offset = newOffset }
                    newOffset = offset initState + 1
 
+{- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
 parse parser input =
     case runParse parser (ParseState input 0) of
         Left err    ->Left err
         Right (result, _) -> Right result
 
-parseElfHeaderMagic :: G.Get ELF_Header_Magic
-parseElfHeaderMagic = do 
-    magicByte <- G.getWord8 
-    magicString <- G.getByteString 3
-    return $ ELF_Header_Magic magicByte (C.unpack magicString)
 
-parseElfClass :: G.Get Word8
-parseElfClass = G.getWord8
-
-(>>?) :: (Either String b, B.ByteString) -> (B.ByteString -> b -> IO (Either String c, B.ByteString)) -> IO (Either String c, B.ByteString)
-(Right r, c) >>? f  = f c r
-(Left a, c) >>? f = do return (Left a, c) 
-
-oldparse :: B.ByteString -> IO (Either String Word8, B.ByteString)
-oldparse input = G.runGet parseElfHeaderMagic input >>? 
-    (\c h -> do 
-        putStrLn $ show h
-        return $ G.runGet parseElfClass c)
-
-main = do 
+main = do
     input <- B.readFile "linker"
-    (a, _) <- oldparse input
-    case a of 
-        Right _ -> putStrLn "Parse succeed"
+    case parse parseByte  input of
+        Right value -> putStrLn $ printf "Parse succeed. Header 0x%02X" value
         Left d -> putStrLn d
 
