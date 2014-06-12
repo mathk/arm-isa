@@ -3,7 +3,9 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 import qualified Data.Binary.Strict.Get as G
 import qualified Data.Binary.Strict.BitGet as BG
+import Control.Applicative
 import Data.Binary.Strict.Util
+import Data.Char (chr, isDigit, isSpace)
 import Data.Int (Int64)
 import Text.Printf
 import Data.Word
@@ -32,6 +34,11 @@ firstParser ==> secondParser = Parse chainedParser
                 Right (firstResult, newState) ->
                     runParse (secondParser firstResult) newState
 
+{- Parse functor -}
+instance Functor Parse where
+    fmap f parser = parser ==> \result ->
+        identity (f result)
+
 {- Parser Utils -}
 getState :: Parse ParseState
 getState = Parse (\s -> Right (s, s))
@@ -56,6 +63,19 @@ parseByte =
              where newState = initState { string = remainder,
                                              offset = newOffset }
                    newOffset = offset initState + 1
+
+w2c :: Word8 -> Char
+w2c = chr . fromIntegral
+
+parseChar :: Parse Char
+parseChar = w2c <$> parseByte
+
+peekByte :: Parse (Maybe Word8)
+peekByte = (fmap fst . B.uncons . string) <$> getState
+
+{-  :type fmap $ fmap w2c -}
+peekChar :: Parse (Maybe Char)
+peekChar = fmap w2c <$> peekByte
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
