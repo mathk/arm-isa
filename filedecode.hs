@@ -5,7 +5,7 @@ import qualified Data.Binary.Strict.Get as G
 import qualified Data.Binary.Strict.BitGet as BG
 import Control.Applicative
 import Data.Binary.Strict.Util
-import Data.Char (chr, isDigit, isSpace)
+import Data.Char (chr, isDigit, isSpace, isAlphaNum)
 import Data.Int (Int64)
 import Text.Printf
 import Data.Word
@@ -16,10 +16,12 @@ data ParseState = ParseState {
         offset :: Int64
     } deriving (Show)
 
-data ELF_Header_Magic = ELF_Header_Magic Word8 String
+data ELFHeaderMagic = ELFHeaderMagic Word8 String
 
-instance Show ELF_Header_Magic where
-    show (ELF_Header_Magic w s) = printf "0x%02X %s" w s
+data ELFHeaderClass = ELF32 | ELF64 | ELFClassUnknown
+
+instance Show ELFHeaderMagic where
+    show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
 
 newtype Parse a = Parse {
         runParse :: ParseState -> Either String (a, ParseState)
@@ -33,6 +35,9 @@ firstParser ==> secondParser = Parse chainedParser
                 Left errMessage -> Left errMessage
                 Right (firstResult, newState) ->
                     runParse (secondParser firstResult) newState
+
+(==>&) :: Parse a -> Parse b -> Parse b
+p ==>& f = p ==> \_ -> f
 
 {- Parse functor -}
 instance Functor Parse where
@@ -76,6 +81,35 @@ peekByte = (fmap fst . B.uncons . string) <$> getState
 {-  :type fmap $ fmap w2c -}
 peekChar :: Parse (Maybe Char)
 peekChar = fmap w2c <$> peekByte
+
+parseWhile :: (Word8 -> Bool) -> Parse [Word8]
+parseWhile p = (fmap p <$> peekByte) ==> \mp ->
+               if mp == Just True
+               then parseByte ==> \b ->
+                    (b:) <$> parseWhile p
+               else identity []
+
+parseIdentifier :: Parse String
+parseIdentifier = fmap w2c <$> parseWhile (isAlphaNum . w2c)
+
+assert :: Bool -> String -> Parse ()
+assert True  _   = identity ()
+assert False err = bail err
+
+{- ELf specific routine -}
+byte2ElfClass :: Word8 -> ELFHeaderClass
+byte2ElfClass 1 = ELF32
+byte2ElfClass 2 = ELF64
+byte2ElfClass _ = ELFClassUnknown
+
+parseELFHeaderClass :: Parse ELFHeaderClass
+parseELFHeaderClass = byte2ElfClass <$> parseByte
+
+
+parseElfHeaderMagic :: Parse ELFHeaderMagic
+parseElfHeaderMagic = parseByte ==> \magicByte ->
+        assert (magicByte == 0x7F) "First magic byte is wrong" ==>&
+        
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
