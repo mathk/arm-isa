@@ -20,7 +20,22 @@ data ELFHeaderMagic = ELFHeaderMagic Word8 String
 
 data ELFHeaderClass = ELF32 | ELF64 | ELFClassUnknown
 
-data ELFHeader = ELFHeader {magic :: ELFHeaderMagic, format :: ELFHeaderClass}
+data ELFHeaderData = ELFBigEndian | ELFLittleEndian
+
+data ELFHeaderVersion = ELFDefaultVersion | ELFOtherVersion
+
+data ELFHeaderABI = ELFHeaderABI Word8
+
+data ELFHeaderType = ELFRelocatable | ELFExecutable | ELFShared | ELFCore
+
+data ELFHeader = ELFHeader {
+        magic :: ELFHeaderMagic,
+        format :: ELFHeaderClass,
+        endianness :: ELFHeaderData,
+        version :: ELFHeaderVersion,
+        osabi :: ELFHeaderABI,
+        objectType :: ELFHeaderType
+    }
 
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
@@ -30,8 +45,33 @@ instance Show ELFHeaderClass where
     show ELF64 = "64bit app"
     show ELFClassUnknown = "Unknown class"
 
+instance Show ELFHeaderVersion where
+    show ELFDefaultVersion = "Original"
+    show ELFOtherVersion   = "Other"
+
+
+instance Show ELFHeaderType where
+    show ELFRelocatable = "relocatable"
+    show ELFExecutable = "executalbe"
+    show ELFShared = "shared"
+    show ELFCore = "core"
+
 instance Show ELFHeader where
-    show ELFHeader { magic=m, format=c } = printf "Magic: %s\nClass: %s" (show m) (show c)
+    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t} =
+        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s"
+            (show m)
+            (show c)
+            (show e)
+            (show v)
+            (show abi)
+            (show t)
+
+instance Show ELFHeaderData where
+    show ELFLittleEndian = "Little Endian"
+    show ELFBigEndian    = "Big Endian"
+
+instance Show ELFHeaderABI where
+    show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
 
 newtype Parse a = Parse {
         runParse :: ParseState -> Either String (a, ParseState)
@@ -62,7 +102,7 @@ putState :: ParseState -> Parse ()
 putState s = Parse (\_ -> Right((), s))
 
 bail :: String -> Parse a
-bail err = Parse $ \s -> Left $ "byte offset" ++ show (offset s) ++ ": " ++ err
+bail err = Parse $ \s -> Left $ "byte offset " ++ show (offset s) ++ ": " ++ err
 
 identity :: a -> Parse a
 identity a = Parse (\s -> Right (a, s))
@@ -78,6 +118,13 @@ parseByte =
              where newState = initState { string = remainder,
                                              offset = newOffset }
                    newOffset = offset initState + 1
+
+skip :: Int -> Parse ()
+skip 0 = identity ()
+skip n
+    | n > 0     = parseByte ==>&
+                    skip (n - 1)
+    | otherwise = bail "Can not skip negative amount of byte"
 
 w2c :: Word8 -> Char
 w2c = chr . fromIntegral
@@ -123,11 +170,42 @@ parseELFHeaderMagic = parseByte ==> \magicByte ->
             assert (ident == "ELF") "Magic string is not ELF" ==>&
             identity (ELFHeaderMagic magicByte ident)
 
+parseELFHeaderEndianness :: Parse ELFHeaderData
+parseELFHeaderEndianness = parseByte ==> \b ->
+        case b of
+            1 -> identity ELFLittleEndian
+            0 -> identity ELFBigEndian
+            _ -> bail $ printf "Bad endianness (0x%02X)" b
+
+parseELFHeaderType :: Parse ELFHeaderType
+parseELFHeaderType = parseByte ==> \b ->
+        case b of
+            1 -> identity ELFRelocatable
+            2 -> identity ELFExecutable
+            3 -> identity ELFShared
+            4 -> identity ELFCore
+            _ -> bail $ printf "Bad elf type (0x%02X)" b
+
+parseELFHeaderVersion :: Parse ELFHeaderVersion
+parseELFHeaderVersion = parseByte ==> \b ->
+        case b of
+            1 -> identity ELFDefaultVersion
+            _ -> identity ELFOtherVersion
+
+
+parseELFHeaderABI :: Parse ELFHeaderABI
+parseELFHeaderABI = parseByte ==> \b ->
+        identity (ELFHeaderABI b)
 
 parseELFHeader :: Parse ELFHeader
 parseELFHeader = parseELFHeaderMagic ==> \m ->
         parseELFHeaderClass ==> \f ->
-            identity ELFHeader {magic=m, format=f}
+        parseELFHeaderEndianness ==> \endian ->
+        parseELFHeaderVersion ==> \v ->
+        parseELFHeaderABI ==> \abi ->
+        skip 8 ==>&
+        parseELFHeaderType ==> \t ->
+           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t}
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
