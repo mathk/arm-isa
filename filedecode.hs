@@ -15,12 +15,13 @@ import Data.Word
 data ParseState = ParseState {
         string :: B.ByteString,
         offset :: Int64,
-        stateEndianness :: ELFHeaderData
+        stateEndianness :: ELFHeaderData,
+        size :: ELFHeaderClass
     } deriving (Show)
 
 data ELFHeaderMagic = ELFHeaderMagic Word8 String
 
-data ELFHeaderClass = ELF32 | ELF64 | ELFClassUnknown
+data ELFHeaderClass = ELF32 | ELF64
 
 data ELFHeaderData = ELFBigEndian | ELFLittleEndian
 
@@ -48,7 +49,8 @@ data ELFHeader = ELFHeader {
         version :: ELFHeaderVersion,
         osabi :: ELFHeaderABI,
         objectType :: ELFHeaderType,
-        machine ::  ELFHeaderMachine
+        machine ::  ELFHeaderMachine,
+        entry :: Either Word32 Word64
     }
 
 instance Show ELFHeaderMagic where
@@ -57,7 +59,6 @@ instance Show ELFHeaderMagic where
 instance Show ELFHeaderClass where
     show ELF32 = "32bit app"
     show ELF64 = "64bit app"
-    show ELFClassUnknown = "Unknown class"
 
 instance Show ELFHeaderVersion where
     show ELFDefaultVersion = "Original"
@@ -82,8 +83,8 @@ instance Show ELFHeaderMachine where
     show ELFAArch64 = "AArch64"
 
 instance Show ELFHeader where
-    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch} =
-        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s"
+    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent} =
+        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s"
             (show m)
             (show c)
             (show e)
@@ -91,6 +92,7 @@ instance Show ELFHeader where
             (show abi)
             (show t)
             (show arch)
+            (show ent)
 
 instance Show ELFHeaderData where
     show ELFLittleEndian = "Little Endian"
@@ -133,7 +135,16 @@ bail err = Parse $ \s -> Left $ "byte offset " ++ show (offset s) ++ ": " ++ err
 identity :: a -> Parse a
 identity a = Parse (\s -> Right (a, s))
 
-{- Parse Byte -}
+{- Parse primitive -}
+w8tow16 :: Word8 -> Word8 -> Word16
+w8tow16 mosteByte lessByte = fromIntegral lessByte + (fromIntegral mosteByte `shiftL` 8)
+
+w16tow32 :: Word16 -> Word16 -> Word32
+w16tow32 mosteHalf lessHalf = fromIntegral lessHalf + (fromIntegral mosteHalf `shiftL` 16)
+
+w32tow64 :: Word32 -> Word32 -> Word64
+w32tow64 mosteWord lessWord = fromIntegral lessWord + (fromIntegral mosteWord `shiftL` 32)
+
 parseByte :: Parse Word8
 parseByte =
     getState ==> \initState ->
@@ -144,9 +155,6 @@ parseByte =
              where newState = initState { string = remainder,
                                              offset = newOffset }
                    newOffset = offset initState + 1
-
-w8tow16 :: Word8 -> Word8 -> Word16
-w8tow16 mostByte lessByte = fromIntegral lessByte + (fromIntegral mostByte `shiftL` 8)
 
 parseHalf :: Parse Word16
 parseHalf = getState ==> \state ->
@@ -160,6 +168,29 @@ parseHalf = getState ==> \state ->
             parseByte ==> \lessByte ->
                 identity $ w8tow16 mostByte lessByte
 
+parseWord :: Parse Word32
+parseWord = getState ==> \state ->
+    case stateEndianness state of
+        ELFLittleEndian ->
+            parseHalf ==> \lessHalf ->
+            parseHalf ==> \mosteHalf ->
+                identity $ w16tow32 mosteHalf lessHalf
+        ELFBigEndian ->
+            parseHalf ==> \mosteHalf ->
+            parseHalf ==> \lessHalf ->
+                identity $ w16tow32 mosteHalf lessHalf
+
+parseGWord :: Parse Word64
+parseGWord = getState ==> \state ->
+    case stateEndianness state of 
+        ELFLittleEndian ->
+            parseWord ==> \lessWord ->
+            parseWord ==> \mosteWord ->
+                identity $ w32tow64 mosteWord lessWord
+        ELFBigEndian ->
+            parseWord ==> \mosteWord ->
+            parseWord ==> \lessWord ->
+                identity $ w32tow64 mosteWord lessWord
 
 skip :: Int -> Parse ()
 skip 0 = identity ()
@@ -196,13 +227,14 @@ assert True  _   = identity ()
 assert False err = bail err
 
 {- ELf specific routine -}
-byte2ElfClass :: Word8 -> ELFHeaderClass
-byte2ElfClass 1 = ELF32
-byte2ElfClass 2 = ELF64
-byte2ElfClass _ = ELFClassUnknown
-
 parseELFHeaderClass :: Parse ELFHeaderClass
-parseELFHeaderClass = byte2ElfClass <$> parseByte
+parseELFHeaderClass = parseByte ==> \b ->
+        case b of
+            1 -> getState ==> \state -> 
+                 putState state {size = ELF32} ==>& identity ELF32
+            2 -> getState ==> \state ->
+                 putState state {size = ELF64} ==>& identity ELF64
+            _ -> bail $ printf "Unknown class (0x02X)" b
 
 parseELFHeaderMagic :: Parse ELFHeaderMagic
 parseELFHeaderMagic = parseByte ==> \magicByte ->
@@ -253,6 +285,12 @@ parseELFHeaderABI :: Parse ELFHeaderABI
 parseELFHeaderABI = parseByte ==> \b ->
         identity (ELFHeaderABI b)
 
+parseELFHeaderEntry :: Parse (Either Word32 Word64)
+parseELFHeaderEntry = getState ==> \state ->
+    case size state of
+        ELF32 -> parseWord ==> \w -> identity (Left w)
+        ELF64 -> parseGWord ==> \w -> identity (Right w)
+
 parseELFHeader :: Parse ELFHeader
 parseELFHeader = parseELFHeaderMagic ==> \m ->
         parseELFHeaderClass ==> \f ->
@@ -262,12 +300,14 @@ parseELFHeader = parseELFHeaderMagic ==> \m ->
         skip 8 ==>&
         parseELFHeaderType ==> \t ->
         parseELFHeaderMachine ==> \arch ->
-           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch}
+        skip 4 ==>&
+        parseELFHeaderEntry ==> \e ->
+           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e}
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
 parse parser input =
-    case runParse parser (ParseState input 0 ELFLittleEndian) of
+    case runParse parser (ParseState input 0 ELFLittleEndian ELF32) of
         Left err            -> Left err
         Right (result, _)   -> Right result
 
