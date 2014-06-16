@@ -20,8 +20,18 @@ data ELFHeaderMagic = ELFHeaderMagic Word8 String
 
 data ELFHeaderClass = ELF32 | ELF64 | ELFClassUnknown
 
+data ELFHeader = ELFHeader {magic :: ELFHeaderMagic, format :: ELFHeaderClass}
+
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
+
+instance Show ELFHeaderClass where
+    show ELF32 = "32bit app"
+    show ELF64 = "64bit app"
+    show ELFClassUnknown = "Unknown class"
+
+instance Show ELFHeader where
+    show ELFHeader { magic=m, format=c } = printf "Magic: %s\nClass: %s" (show m) (show c)
 
 newtype Parse a = Parse {
         runParse :: ParseState -> Either String (a, ParseState)
@@ -106,10 +116,18 @@ parseELFHeaderClass :: Parse ELFHeaderClass
 parseELFHeaderClass = byte2ElfClass <$> parseByte
 
 
-parseElfHeaderMagic :: Parse ELFHeaderMagic
-parseElfHeaderMagic = parseByte ==> \magicByte ->
+parseELFHeaderMagic :: Parse ELFHeaderMagic
+parseELFHeaderMagic = parseByte ==> \magicByte ->
         assert (magicByte == 0x7F) "First magic byte is wrong" ==>&
-        
+        parseIdentifier ==> \ident ->
+            assert (ident == "ELF") "Magic string is not ELF" ==>&
+            identity (ELFHeaderMagic magicByte ident)
+
+
+parseELFHeader :: Parse ELFHeader
+parseELFHeader = parseELFHeaderMagic ==> \m ->
+        parseELFHeaderClass ==> \f ->
+            identity ELFHeader {magic=m, format=f}
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
@@ -121,7 +139,7 @@ parse parser input =
 
 main = do
     input <- B.readFile "linker"
-    case parse parseByte  input of
-        Right value -> putStrLn $ printf "Parse succeed. Header 0x%02X" value
+    case parse parseELFHeader  input of
+        Right value -> putStrLn $ show value
         Left d -> putStrLn d
 
