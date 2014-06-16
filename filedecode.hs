@@ -139,8 +139,9 @@ identity a = Parse (\s -> Right (a, s))
 w8tow16 :: Word8 -> Word8 -> Word16
 w8tow16 mosteByte lessByte = fromIntegral lessByte + (fromIntegral mosteByte `shiftL` 8)
 
-w16tow32 :: Word16 -> Word16 -> Word32
-w16tow32 mosteHalf lessHalf = fromIntegral lessHalf + (fromIntegral mosteHalf `shiftL` 16)
+w8tow32 :: Word8 -> Word8 -> Word8 -> Word8 -> Word32
+w8tow32 mosteByte1 mosteByte2 lessByte1 lessByte2 =
+        fromIntegral $ w8tow16 lessByte1 lessByte2 + (fromIntegral $ w8tow16 mosteByte1 mosteByte2 `shiftL` 16)
 
 w32tow64 :: Word32 -> Word32 -> Word64
 w32tow64 mosteWord lessWord = fromIntegral lessWord + (fromIntegral mosteWord `shiftL` 32)
@@ -172,13 +173,17 @@ parseWord :: Parse Word32
 parseWord = getState ==> \state ->
     case stateEndianness state of
         ELFLittleEndian ->
-            parseHalf ==> \lessHalf ->
-            parseHalf ==> \mosteHalf ->
-                identity $ w16tow32 mosteHalf lessHalf
+            parseByte ==> \lessByte2 ->
+            parseByte ==> \lessByte1 ->
+            parseByte ==> \mosteByte2 ->
+            parseByte ==> \mosteByte1 ->
+                identity $ w8tow32 mosteByte1 mosteByte2 lessByte1 lessByte2
         ELFBigEndian ->
-            parseHalf ==> \mosteHalf ->
-            parseHalf ==> \lessHalf ->
-                identity $ w16tow32 mosteHalf lessHalf
+            parseByte ==> \mosteByte1 ->
+            parseByte ==> \mosteByte2 ->
+            parseByte ==> \lessByte1 ->
+            parseByte ==> \lessByte2 ->
+                identity $ w8tow32 mosteByte1 mosteByte2 lessByte1 lessByte2
 
 parseGWord :: Parse Word64
 parseGWord = getState ==> \state ->
