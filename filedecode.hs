@@ -5,6 +5,7 @@ import qualified Data.Binary.Strict.Get as G
 import qualified Data.Binary.Strict.BitGet as BG
 import Control.Applicative
 import Data.Binary.Strict.Util
+import Data.Bits
 import Data.Char (chr, isDigit, isSpace, isAlphaNum)
 import Data.Int (Int64)
 import Text.Printf
@@ -13,7 +14,8 @@ import Data.Word
 {- Data type -}
 data ParseState = ParseState {
         string :: B.ByteString,
-        offset :: Int64
+        offset :: Int64,
+        stateEndianness :: ELFHeaderData
     } deriving (Show)
 
 data ELFHeaderMagic = ELFHeaderMagic Word8 String
@@ -28,13 +30,25 @@ data ELFHeaderABI = ELFHeaderABI Word8
 
 data ELFHeaderType = ELFRelocatable | ELFExecutable | ELFShared | ELFCore
 
+data ELFHeaderMachine = 
+        ELFSPARC    |
+        ELFx86      |
+        ELFMIPS     |
+        ELFPowerPC  |
+        ELFARM      |
+        ELFSuperH   |
+        ELFIA64     |
+        ELFx86_64   |
+        ELFAArch64
+
 data ELFHeader = ELFHeader {
         magic :: ELFHeaderMagic,
         format :: ELFHeaderClass,
         endianness :: ELFHeaderData,
         version :: ELFHeaderVersion,
         osabi :: ELFHeaderABI,
-        objectType :: ELFHeaderType
+        objectType :: ELFHeaderType,
+        machine ::  ELFHeaderMachine
     }
 
 instance Show ELFHeaderMagic where
@@ -56,15 +70,27 @@ instance Show ELFHeaderType where
     show ELFShared = "shared"
     show ELFCore = "core"
 
+instance Show ELFHeaderMachine where
+    show ELFSPARC   = "SPARC"
+    show ELFx86     = "x86"
+    show ELFMIPS    = "MIPS"
+    show ELFPowerPC = "PowerPC"
+    show ELFARM     = "ARM"
+    show ELFSuperH  = "SuperH"
+    show ELFIA64    = "IA-64"
+    show ELFx86_64  = "x86-64"
+    show ELFAArch64 = "AArch64"
+
 instance Show ELFHeader where
-    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t} =
-        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s"
+    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch} =
+        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s"
             (show m)
             (show c)
             (show e)
             (show v)
             (show abi)
             (show t)
+            (show arch)
 
 instance Show ELFHeaderData where
     show ELFLittleEndian = "Little Endian"
@@ -119,6 +145,22 @@ parseByte =
                                              offset = newOffset }
                    newOffset = offset initState + 1
 
+w8tow16 :: Word8 -> Word8 -> Word16
+w8tow16 mostByte lessByte = fromIntegral lessByte + (fromIntegral mostByte `shiftL` 8)
+
+parseHalf :: Parse Word16
+parseHalf = getState ==> \state ->
+    case stateEndianness state of
+        ELFLittleEndian ->
+            parseByte ==> \lessByte ->
+            parseByte ==> \mostByte ->
+                identity $ w8tow16 mostByte lessByte
+        ELFBigEndian ->
+            parseByte ==> \mostByte ->
+            parseByte ==> \lessByte ->
+                identity $ w8tow16 mostByte lessByte
+
+
 skip :: Int -> Parse ()
 skip 0 = identity ()
 skip n
@@ -162,7 +204,6 @@ byte2ElfClass _ = ELFClassUnknown
 parseELFHeaderClass :: Parse ELFHeaderClass
 parseELFHeaderClass = byte2ElfClass <$> parseByte
 
-
 parseELFHeaderMagic :: Parse ELFHeaderMagic
 parseELFHeaderMagic = parseByte ==> \magicByte ->
         assert (magicByte == 0x7F) "First magic byte is wrong" ==>&
@@ -172,13 +213,15 @@ parseELFHeaderMagic = parseByte ==> \magicByte ->
 
 parseELFHeaderEndianness :: Parse ELFHeaderData
 parseELFHeaderEndianness = parseByte ==> \b ->
-        case b of
-            1 -> identity ELFLittleEndian
-            0 -> identity ELFBigEndian
-            _ -> bail $ printf "Bad endianness (0x%02X)" b
+            case b of
+                1 -> getState ==> \state ->
+                     putState state {stateEndianness = ELFLittleEndian } ==>& identity ELFLittleEndian
+                0 -> getState ==> \state ->
+                     putState state {stateEndianness = ELFBigEndian} ==>& identity ELFBigEndian
+                _ -> bail $ printf "Bad endianness (0x%02X)" b
 
 parseELFHeaderType :: Parse ELFHeaderType
-parseELFHeaderType = parseByte ==> \b ->
+parseELFHeaderType = parseHalf ==> \b ->
         case b of
             1 -> identity ELFRelocatable
             2 -> identity ELFExecutable
@@ -186,12 +229,25 @@ parseELFHeaderType = parseByte ==> \b ->
             4 -> identity ELFCore
             _ -> bail $ printf "Bad elf type (0x%02X)" b
 
+parseELFHeaderMachine :: Parse ELFHeaderMachine
+parseELFHeaderMachine = parseByte ==> \b ->
+        case b of
+            0x02 -> identity ELFSPARC
+            0x03 -> identity ELFx86
+            0x08 -> identity ELFMIPS
+            0x14 -> identity ELFPowerPC
+            0x28 -> identity ELFARM
+            0x2A -> identity ELFSuperH
+            0x32 -> identity ELFIA64
+            0x3E -> identity ELFx86_64
+            0xB7 -> identity ELFAArch64
+            _ -> bail $ printf "Unknown machine (0x%02X)" b
+
 parseELFHeaderVersion :: Parse ELFHeaderVersion
 parseELFHeaderVersion = parseByte ==> \b ->
         case b of
             1 -> identity ELFDefaultVersion
             _ -> identity ELFOtherVersion
-
 
 parseELFHeaderABI :: Parse ELFHeaderABI
 parseELFHeaderABI = parseByte ==> \b ->
@@ -205,14 +261,15 @@ parseELFHeader = parseELFHeaderMagic ==> \m ->
         parseELFHeaderABI ==> \abi ->
         skip 8 ==>&
         parseELFHeaderType ==> \t ->
-           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t}
+        parseELFHeaderMachine ==> \arch ->
+           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch}
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
 parse parser input =
-    case runParse parser (ParseState input 0) of
-        Left err    ->Left err
-        Right (result, _) -> Right result
+    case runParse parser (ParseState input 0 ELFLittleEndian) of
+        Left err            -> Left err
+        Right (result, _)   -> Right result
 
 
 main = do
