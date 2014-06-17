@@ -50,8 +50,21 @@ data ELFHeader = ELFHeader {
         osabi :: ELFHeaderABI,
         objectType :: ELFHeaderType,
         machine ::  ELFHeaderMachine,
-        entry :: Either Word32 Word64
+        entry :: Address,
+        phoff :: Address,
+        shoff :: Address,
+        flags :: Word32
     }
+
+newtype Parse a = Parse {
+        runParse :: ParseState -> Either String (a, ParseState)
+    }
+
+newtype Address = Address (Either Word32 Word64)
+
+instance Show Address where
+    show (Address (Left w)) = printf "0x%08X" w
+    show (Address (Right w)) = printf "0x%016X" w
 
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
@@ -83,8 +96,8 @@ instance Show ELFHeaderMachine where
     show ELFAArch64 = "AArch64"
 
 instance Show ELFHeader where
-    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent} =
-        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s"
+    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f} =
+        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X"
             (show m)
             (show c)
             (show e)
@@ -93,6 +106,9 @@ instance Show ELFHeader where
             (show t)
             (show arch)
             (show ent)
+            (show ph)
+            (show sh)
+            f
 
 instance Show ELFHeaderData where
     show ELFLittleEndian = "Little Endian"
@@ -100,10 +116,6 @@ instance Show ELFHeaderData where
 
 instance Show ELFHeaderABI where
     show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
-
-newtype Parse a = Parse {
-        runParse :: ParseState -> Either String (a, ParseState)
-    }
 
 {- Parser composition -}
 (==>) :: Parse a -> (a -> Parse b) -> Parse b
@@ -139,6 +151,10 @@ identity a = Parse (\s -> Right (a, s))
 w8tow16 :: Word8 -> Word8 -> Word16
 w8tow16 mosteByte lessByte = fromIntegral lessByte + (fromIntegral mosteByte `shiftL` 8)
 
+w16tow32 :: Word16 -> Word16 -> Word32
+w16tow32 mosteBytes lessBytes =
+        fromIntegral lessBytes + (fromIntegral mosteBytes `shiftL` 16)
+
 w8tow32 :: Word8 -> Word8 -> Word8 -> Word8 -> Word32
 w8tow32 mosteByte1 mosteByte2 lessByte1 lessByte2 =
         fromIntegral $ w8tow16 lessByte1 lessByte2 + (fromIntegral $ w8tow16 mosteByte1 mosteByte2 `shiftL` 16)
@@ -173,17 +189,13 @@ parseWord :: Parse Word32
 parseWord = getState ==> \state ->
     case stateEndianness state of
         ELFLittleEndian ->
-            parseByte ==> \lessByte2 ->
-            parseByte ==> \lessByte1 ->
-            parseByte ==> \mosteByte2 ->
-            parseByte ==> \mosteByte1 ->
-                identity $ w8tow32 mosteByte1 mosteByte2 lessByte1 lessByte2
+            parseHalf ==> \lessBytes ->
+            parseHalf ==> \mosteBytes ->
+                identity $ w16tow32 mosteBytes lessBytes
         ELFBigEndian ->
-            parseByte ==> \mosteByte1 ->
-            parseByte ==> \mosteByte2 ->
-            parseByte ==> \lessByte1 ->
-            parseByte ==> \lessByte2 ->
-                identity $ w8tow32 mosteByte1 mosteByte2 lessByte1 lessByte2
+            parseHalf ==> \mosteBytes ->
+            parseHalf ==> \lessBytes ->
+                identity $ w16tow32 mosteBytes lessBytes
 
 parseGWord :: Parse Word64
 parseGWord = getState ==> \state ->
@@ -267,7 +279,7 @@ parseELFHeaderType = parseHalf ==> \b ->
             _ -> bail $ printf "Bad elf type (0x%02X)" b
 
 parseELFHeaderMachine :: Parse ELFHeaderMachine
-parseELFHeaderMachine = parseByte ==> \b ->
+parseELFHeaderMachine = parseHalf ==> \b ->
         case b of
             0x02 -> identity ELFSPARC
             0x03 -> identity ELFx86
@@ -290,11 +302,11 @@ parseELFHeaderABI :: Parse ELFHeaderABI
 parseELFHeaderABI = parseByte ==> \b ->
         identity (ELFHeaderABI b)
 
-parseELFHeaderEntry :: Parse (Either Word32 Word64)
-parseELFHeaderEntry = getState ==> \state ->
+parseELFAddress :: Parse Address
+parseELFAddress = getState ==> \state ->
     case size state of
-        ELF32 -> parseWord ==> \w -> identity (Left w)
-        ELF64 -> parseGWord ==> \w -> identity (Right w)
+        ELF32 -> parseWord ==> \w -> identity $ Address (Left w)
+        ELF64 -> parseGWord ==> \w -> identity $ Address (Right w)
 
 parseELFHeader :: Parse ELFHeader
 parseELFHeader = parseELFHeaderMagic ==> \m ->
@@ -306,8 +318,11 @@ parseELFHeader = parseELFHeaderMagic ==> \m ->
         parseELFHeaderType ==> \t ->
         parseELFHeaderMachine ==> \arch ->
         skip 4 ==>&
-        parseELFHeaderEntry ==> \e ->
-           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e}
+        parseELFAddress ==> \e ->
+        parseELFAddress ==> \ph ->
+        parseELFAddress ==> \sh ->
+        parseWord ==> \flgs ->
+           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs}
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a
