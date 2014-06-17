@@ -1,7 +1,6 @@
 module FileDecoding
     (
-      parse,
-      parseELFHeader
+      parse
     ) where
 
 -- http://www.haskell.org/haskellwiki/Dealing_with_binary_data
@@ -310,22 +309,6 @@ parseELFAddress = getState ==> \state ->
     case size state of
         ELF32 -> parseWord ==> \w -> identity $ Address (Left w)
         ELF64 -> parseGWord ==> \w -> identity $ Address (Right w)
-
-parseELFHeader :: Parse ELFHeader
-parseELFHeader = parseELFHeaderMagic ==> \m ->
-        parseELFHeaderClass ==> \f ->
-        parseELFHeaderEndianness ==> \endian ->
-        parseELFHeaderVersion ==> \v ->
-        parseELFHeaderABI ==> \abi ->
-        skip 8 ==>&
-        parseELFHeaderType ==> \t ->
-        parseELFHeaderMachine ==> \arch ->
-        skip 4 ==>&
-        parseELFAddress ==> \e ->
-        parseELFAddress ==> \ph ->
-        parseELFAddress ==> \sh ->
-        parseWord ==> \flgs ->
-           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs}
 
 {- Parse engine that chain all the parser -}
 parse :: Parse a -> B.ByteString -> Either String a

@@ -1,4 +1,5 @@
 import FileDecoding
+import ElfParser
 import qualified Data.ByteString as B
 
 main :: IO ()
