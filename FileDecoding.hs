@@ -7,10 +7,7 @@ module FileDecoding
 -- http://www.haskell.org/haskellwiki/Dealing_with_binary_data
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
-import qualified Data.Binary.Strict.Get as G
-import qualified Data.Binary.Strict.BitGet as BG
 import Control.Applicative
-import Data.Binary.Strict.Util
 import Data.Bits
 import Data.Char (chr, isDigit, isSpace, isAlphaNum)
 import Data.Int (Int64)
