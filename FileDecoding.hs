@@ -1,3 +1,9 @@
+module FileDecoding
+    (
+      parse,
+      parseELFHeader
+    ) where
+
 -- http://www.haskell.org/haskellwiki/Dealing_with_binary_data
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
@@ -331,10 +337,4 @@ parse parser input =
         Left err            -> Left err
         Right (result, _)   -> Right result
 
-
-main = do
-    input <- B.readFile "linker"
-    case parse parseELFHeader  input of
-        Right value -> putStrLn $ show value
-        Left d -> putStrLn d
 
