@@ -123,7 +123,7 @@ parseELFHeaderMagic :: Parse ELFHeaderMagic
 parseELFHeaderMagic = parseByte ==> \magicByte ->
         assert (magicByte == 0x7F) "First magic byte is wrong" ==>&
         parseIdentifier ==> \ident ->
-            assert (ident == "ELF") "Magic string is not ELF" ==>&
+            assert (ident == "ELF") (printf "Magic string is not ELF %s" ident) ==>&
             identity (ELFHeaderMagic magicByte ident)
 
 parseELFHeaderEndianness :: Parse Endianness
@@ -177,24 +177,25 @@ parseELFAddress = getState ==> \state ->
     This funcition parse the ELF header extracting all the usefull information
  -}
 parseELFHeader :: Parse ELFHeader
-parseELFHeader = parseELFHeaderMagic ==> \m ->
-        parseELFHeaderClass ==> \f ->
-        parseELFHeaderEndianness ==> \endian ->
-        parseELFHeaderVersion ==> \v ->
-        parseELFHeaderABI ==> \abi ->
-        skip 8 ==>&
-        parseELFHeaderType ==> \t ->
-        parseELFHeaderMachine ==> \arch ->
-        skip 4 ==>&
-        parseELFAddress ==> \e ->
-        parseELFAddress ==> \ph ->
-        parseELFAddress ==> \sh ->
-        parseWord ==> \flgs ->
-        parseHalf ==> \hs ->
-        parseHalf ==> \phes ->
-        parseHalf ==> \phn ->
-        parseHalf ==> \shes ->
-        parseHalf ==> \shn ->
-        parseHalf ==> \shsi ->
-           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
+parseELFHeader = do
+        m <- parseELFHeaderMagic
+        f <- parseELFHeaderClass
+        endian <- parseELFHeaderEndianness
+        v <- parseELFHeaderVersion
+        abi <- parseELFHeaderABI
+        skip 8
+        t <- parseELFHeaderType
+        arch <- parseELFHeaderMachine
+        skip 4
+        e <- parseELFAddress
+        ph <- parseELFAddress
+        sh <- parseELFAddress
+        flgs <- parseWord
+        hs <- parseHalf
+        phes <- parseHalf
+        phn <- parseHalf
+        shes <- parseHalf
+        shn <- parseHalf
+        shsi <- parseHalf
+        return ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
 

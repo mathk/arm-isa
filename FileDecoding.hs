@@ -40,7 +40,7 @@ import Data.Word
 {- Data type -}
 data ParseState = ParseState {
         string :: B.ByteString,
-        offset :: Int64,
+        offset :: Int,
         stateEndianness :: Endianness,
         size :: AddressSize
     } deriving (Show)
@@ -62,6 +62,7 @@ instance Show AddressSize where
     show S32 = "32bit app"
     show S64 = "64bit app"
 
+
 {- Parser composition -}
 (==>) :: Parse a -> (a -> Parse b) -> Parse b
 firstParser ==> secondParser = Parse chainedParser
@@ -78,6 +79,11 @@ p ==>& f = p ==> \_ -> f
 instance Functor Parse where
     fmap f parser = parser ==> \result ->
         identity (f result)
+
+instance Monad Parse where
+    return = identity
+    (>>=) = (==>)
+    fail = bail
 
 {- Parser Utils -}
 getState :: Parse ParseState
@@ -111,13 +117,9 @@ w32tow64 mosteWord lessWord =
 parseByte :: Parse Word8
 parseByte =
     getState ==> \initState ->
-        case B.uncons (string initState) of
-            Nothing -> bail "no more input"
-            Just (byte, remainder) ->
-                  Parse (\_ -> Right(byte, newState))
-             where newState = initState { string = remainder,
-                                             offset = newOffset }
-                   newOffset = offset initState + 1
+        if (offset initState) >= B.length (string initState) 
+        then bail "no more input"
+        else Parse (\_ -> Right(B.index (string initState) (offset initState), initState { offset = (offset initState + 1)}))
 
 parseHalf :: Parse Word16
 parseHalf = getState ==> \state ->
@@ -169,7 +171,11 @@ parseChar :: Parse Char
 parseChar = w2c <$> parseByte
 
 peekByte :: Parse (Maybe Word8)
-peekByte = (fmap fst . B.uncons . string) <$> getState
+peekByte = do
+    state <- getState
+    if (offset state) >= B.length (string state)
+    then return Nothing
+    else return (Just (B.index (string state) (offset state)))
 
 peekChar :: Parse (Maybe Char)
 peekChar = fmap w2c <$> peekByte
