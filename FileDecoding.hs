@@ -1,3 +1,10 @@
+{-|
+    Module          : FileDecoding
+    Description     : Utilities to decode binary file
+    Copyright       : (c) Mathieu Suen, 2014
+    License         : MIT
+    Maintainer      : mathk.sue@gmail.com
+ -}
 module FileDecoding
     (
       Parse(..),
@@ -79,6 +86,9 @@ getState = Parse (\s -> Right (s, s))
 putState :: ParseState -> Parse ()
 putState s = Parse (\_ -> Right((), s))
 
+{-|
+    Stop the parser and report an error.
+-}
 bail :: String -> Parse a
 bail err = Parse $ \s -> Left $ "byte offset " ++ show (offset s) ++ ": " ++ err
 
@@ -87,18 +97,16 @@ identity a = Parse (\s -> Right (a, s))
 
 {- Parse primitive -}
 w8tow16 :: Word8 -> Word8 -> Word16
-w8tow16 mosteByte lessByte = fromIntegral lessByte + (fromIntegral mosteByte `shiftL` 8)
+w8tow16 mosteByte lessByte = 
+    fromIntegral lessByte + (fromIntegral mosteByte `shiftL` 8)
 
 w16tow32 :: Word16 -> Word16 -> Word32
 w16tow32 mosteBytes lessBytes =
-        fromIntegral lessBytes + (fromIntegral mosteBytes `shiftL` 16)
-
-w8tow32 :: Word8 -> Word8 -> Word8 -> Word8 -> Word32
-w8tow32 mosteByte1 mosteByte2 lessByte1 lessByte2 =
-        fromIntegral $ w8tow16 lessByte1 lessByte2 + (fromIntegral $ w8tow16 mosteByte1 mosteByte2 `shiftL` 16)
+    fromIntegral lessBytes + (fromIntegral mosteBytes `shiftL` 16)
 
 w32tow64 :: Word32 -> Word32 -> Word64
-w32tow64 mosteWord lessWord = fromIntegral lessWord + (fromIntegral mosteWord `shiftL` 32)
+w32tow64 mosteWord lessWord = 
+    fromIntegral lessWord + (fromIntegral mosteWord `shiftL` 32)
 
 parseByte :: Parse Word8
 parseByte =
@@ -163,25 +171,36 @@ parseChar = w2c <$> parseByte
 peekByte :: Parse (Maybe Word8)
 peekByte = (fmap fst . B.uncons . string) <$> getState
 
-{-  :type fmap $ fmap w2c -}
 peekChar :: Parse (Maybe Char)
 peekChar = fmap w2c <$> peekByte
 
+{-|
+    Parse until a condition is met and report the result as list of byte.
+    The result can be an empty list.
+-}
 parseWhile :: (Word8 -> Bool) -> Parse [Word8]
 parseWhile p = (fmap p <$> peekByte) ==> \mp ->
                if mp == Just True
                then parseByte ==> \b ->
                     (b:) <$> parseWhile p
                else identity []
-
+{-|
+    Parse a continuous byte of alpha numeric character and report it as a String.
+ -}
 parseIdentifier :: Parse String
 parseIdentifier = fmap w2c <$> parseWhile (isAlphaNum . w2c)
 
+{-|
+    Assert a condition and stop parsing if the condition is not met.
+    It report the text error to the client.
+ -}
 assert :: Bool -> String -> Parse ()
 assert True  _   = identity ()
 assert False err = bail err
 
-{- Parse engine that chain all the parser -}
+{-|
+  Parse engine that chain all the parser 
+-}
 parse :: Parse a -> B.ByteString -> Either String a
 parse parser input =
     case runParse parser (ParseState input 0 LittleEndian S32) of

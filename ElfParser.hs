@@ -1,3 +1,10 @@
+{-|
+    Module          : ElfParser
+    Description     : ELF Parser
+    Copyright       : (c) Mathieu Suen, 2014
+    License         : MIT
+    Maintainer      : mathk.sue@gmail.com
+ -}
 module ElfParser
     (
       parseELFHeader
@@ -154,7 +161,9 @@ parseELFAddress = getState ==> \state ->
     case size state of
         S32 -> parseWord ==> \w -> identity $ Address (Left w)
         S64 -> parseGWord ==> \w -> identity $ Address (Right w)
-
+{-|
+    This funcition parse the ELF header extracting all the usefull information
+ -}
 parseELFHeader :: Parse ELFHeader
 parseELFHeader = parseELFHeaderMagic ==> \m ->
         parseELFHeaderClass ==> \f ->
