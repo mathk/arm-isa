@@ -45,7 +45,13 @@ data ELFHeader = ELFHeader {
         entry :: Address,
         phoff :: Address,
         shoff :: Address,
-        flags :: Word32
+        flags :: Word32,
+        hsize :: Word16,
+        phentsize :: Word16,
+        phnum :: Word16,
+        shentsize :: Word16,
+        shnum :: Word16,
+        shstrndx :: Word16
     }
 
 newtype Address = Address (Either Word32 Word64)
@@ -80,8 +86,8 @@ instance Show ELFHeaderMachine where
     show ELFAArch64 = "AArch64"
 
 instance Show ELFHeader where
-    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f} =
-        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X"
+    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi} =
+        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X\nHeader Size: %d\nProgram Header Size: %d\nProgram Header Entry Number: %d\nSection Header Size: %d\nSection Header Entry Number: %d\nIndex Section Name: %d"
             (show m)
             (show c)
             (show e)
@@ -93,6 +99,12 @@ instance Show ELFHeader where
             (show ph)
             (show sh)
             f
+            hs
+            phes
+            phn
+            shes
+            shn
+            shsi
 
 instance Show ELFHeaderABI where
     show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
@@ -178,5 +190,11 @@ parseELFHeader = parseELFHeaderMagic ==> \m ->
         parseELFAddress ==> \ph ->
         parseELFAddress ==> \sh ->
         parseWord ==> \flgs ->
-           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs}
+        parseHalf ==> \hs ->
+        parseHalf ==> \phes ->
+        parseHalf ==> \phn ->
+        parseHalf ==> \shes ->
+        parseHalf ==> \shn ->
+        parseHalf ==> \shsi ->
+           identity ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
 
