@@ -7,6 +7,8 @@
  -}
 module ElfParser
     (
+      ELFParserState(..),
+      AddressSize(..),
       parseELFHeader
     ) where
 
@@ -54,6 +56,12 @@ data ELFHeader = ELFHeader {
         shstrndx :: Word16
     }
 
+data ELFParserState = ELFParserState {
+        size :: AddressSize
+    } deriving (Show)
+
+data AddressSize = S32 | S64
+
 newtype Address = Address (Either Word32 Word64)
 
 {- Instance declaration -}
@@ -85,6 +93,10 @@ instance Show ELFHeaderMachine where
     show ELFx86_64  = "x86-64"
     show ELFAArch64 = "AArch64"
 
+instance Show AddressSize where
+    show S32 = "32bit app"
+    show S64 = "64bit app"
+
 instance Show ELFHeader where
     show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi} =
         printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X\nHeader Size: %d\nProgram Header Size: %d\nProgram Header Entry Number: %d\nSection Header Size: %d\nSection Header Entry Number: %d\nIndex Section Name: %d"
@@ -113,10 +125,10 @@ instance Show ELFHeaderABI where
 parseELFHeaderClass :: Parse AddressSize
 parseELFHeaderClass = parseByte ==> \b ->
         case b of
-            1 -> getState ==> \state -> 
-                 putState state {size = S32} ==>& identity S32
-            2 -> getState ==> \state ->
-                 putState state {size = S64} ==>& identity S64
+            1 -> getAdditionalState ==> \state -> 
+                 putAdditionalState state {size = S32} ==>& identity S32
+            2 -> getAdditionalState ==> \state ->
+                 putAdditionalState state {size = S64} ==>& identity S64
             _ -> bail $ printf "Unknown class (0x02X)" b
 
 parseELFHeaderMagic :: Parse ELFHeaderMagic
@@ -169,7 +181,7 @@ parseELFHeaderABI = parseByte ==> \b ->
         identity (ELFHeaderABI b)
 
 parseELFAddress :: Parse Address
-parseELFAddress = getState ==> \state ->
+parseELFAddress = getAdditionalState ==> \state ->
     case size state of
         S32 -> parseWord ==> \w -> identity $ Address (Left w)
         S64 -> parseGWord ==> \w -> identity $ Address (Right w)

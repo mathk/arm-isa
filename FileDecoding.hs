@@ -24,6 +24,8 @@ module FileDecoding
       skip,
       getState,
       putState,
+      getAdditionalState,
+      putAdditionalState,
       assert
     ) where
 
@@ -38,18 +40,16 @@ import Text.Printf
 import Data.Word
 
 {- Data type -}
-data ParseState = ParseState {
+data ParseState = forall a. ParseState {
         string :: B.ByteString,
         offset :: Int64,
         stateEndianness :: Endianness,
-        size :: AddressSize
+        additionalState :: a
     } deriving (Show)
 
 data Endianness = BigEndian | LittleEndian
 
-data AddressSize = S32 | S64
-
-newtype Parse a = Parse {
+newtype Parse = Parse {
         runParse :: ParseState -> Either String (a, ParseState)
     }
 
@@ -57,10 +57,6 @@ newtype Parse a = Parse {
 instance Show Endianness where
     show LittleEndian = "Little Endian"
     show BigEndian    = "Big Endian"
-
-instance Show AddressSize where
-    show S32 = "32bit app"
-    show S64 = "64bit app"
 
 {- Parser composition -}
 (==>) :: Parse a -> (a -> Parse b) -> Parse b
@@ -85,6 +81,13 @@ getState = Parse (\s -> Right (s, s))
 
 putState :: ParseState -> Parse ()
 putState s = Parse (\_ -> Right((), s))
+
+getAdditionalState :: Parse a
+getAdditionalState = Parse (\s -> Right((additionalState s) s))
+
+putAdditionalState :: a -> Parse ()
+putAdditionalState a = getState ==> \s ->
+    Parse (\_ -> Right(() (s {additionalState=a})))
 
 {-|
     Stop the parser and report an error.
@@ -201,9 +204,9 @@ assert False err = bail err
 {-|
   Parse engine that chain all the parser 
 -}
-parse :: Parse a -> B.ByteString -> Either String a
-parse parser input =
-    case runParse parser (ParseState input 0 LittleEndian S32) of
+parse :: Parse a -> B.ByteString -> a -> Either String a
+parse parser input initState =
+    case runParse parser (ParseState input 0 LittleEndian initState) of
         Left err            -> Left err
         Right (result, _)   -> Right result
 
