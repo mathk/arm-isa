@@ -4,13 +4,11 @@ module ElfParser
     ) where
 
 import FileDecoding
+import Text.Printf
+import Data.Word
 
 {- ELF Data type -}
 data ELFHeaderMagic = ELFHeaderMagic Word8 String
-
-data ELFHeaderClass = ELF32 | ELF64
-
-data ELFHeaderData = ELFBigEndian | ELFLittleEndian
 
 data ELFHeaderVersion = ELFDefaultVersion | ELFOtherVersion
 
@@ -31,8 +29,8 @@ data ELFHeaderMachine =
 
 data ELFHeader = ELFHeader {
         magic :: ELFHeaderMagic,
-        format :: ELFHeaderClass,
-        endianness :: ELFHeaderData,
+        format :: AddressSize,
+        endianness :: Endianness,
         version :: ELFHeaderVersion,
         osabi :: ELFHeaderABI,
         objectType :: ELFHeaderType,
@@ -43,9 +41,9 @@ data ELFHeader = ELFHeader {
         flags :: Word32
     }
 
-{- ELF instances -}
 newtype Address = Address (Either Word32 Word64)
 
+{- Instance declaration -}
 instance Show Address where
     show (Address (Left w)) = printf "0x%08X" w
     show (Address (Right w)) = printf "0x%016X" w
@@ -53,14 +51,9 @@ instance Show Address where
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
 
-instance Show ELFHeaderClass where
-    show ELF32 = "32bit app"
-    show ELF64 = "64bit app"
-
 instance Show ELFHeaderVersion where
     show ELFDefaultVersion = "Original"
     show ELFOtherVersion   = "Other"
-
 
 instance Show ELFHeaderType where
     show ELFRelocatable = "relocatable"
@@ -98,13 +91,13 @@ instance Show ELFHeaderABI where
     show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
 
 {- ELf specific routine -}
-parseELFHeaderClass :: Parse ELFHeaderClass
+parseELFHeaderClass :: Parse AddressSize
 parseELFHeaderClass = parseByte ==> \b ->
         case b of
             1 -> getState ==> \state -> 
-                 putState state {size = ELF32} ==>& identity ELF32
+                 putState state {size = S32} ==>& identity S32
             2 -> getState ==> \state ->
-                 putState state {size = ELF64} ==>& identity ELF64
+                 putState state {size = S64} ==>& identity S64
             _ -> bail $ printf "Unknown class (0x02X)" b
 
 parseELFHeaderMagic :: Parse ELFHeaderMagic
@@ -159,8 +152,8 @@ parseELFHeaderABI = parseByte ==> \b ->
 parseELFAddress :: Parse Address
 parseELFAddress = getState ==> \state ->
     case size state of
-        ELF32 -> parseWord ==> \w -> identity $ Address (Left w)
-        ELF64 -> parseGWord ==> \w -> identity $ Address (Right w)
+        S32 -> parseWord ==> \w -> identity $ Address (Left w)
+        S64 -> parseGWord ==> \w -> identity $ Address (Right w)
 
 parseELFHeader :: Parse ELFHeader
 parseELFHeader = parseELFHeaderMagic ==> \m ->
