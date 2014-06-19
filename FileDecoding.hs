@@ -10,7 +10,7 @@ module FileDecoding
       Parse(..),
       Endianness(..),
       AddressSize(..),
-      ParseState(..),
+      ParseStateAccess(..),
       (==>),
       (==>&),
       parse,
@@ -37,20 +37,21 @@ import Data.Int (Int64)
 import Text.Printf
 import Data.Word
 
-{- Data type -}
-data ParseState = ParseState {
-        string :: B.ByteString,
-        offset :: Int,
-        stateEndianness :: Endianness,
-        size :: AddressSize
-    } deriving (Show)
+{-| 
+    Class used to carry the state along when parsing the file.
+ -}
+class ParseStateAccess a where
+    offset :: a -> Int
+    string :: a -> B.ByteString
+    endianness :: a -> Endianness
+    putOffset :: a -> Int -> a
 
 data Endianness = BigEndian | LittleEndian
 
 data AddressSize = S32 | S64
 
-newtype Parse a = Parse {
-        runParse :: ParseState -> Either String (a, ParseState)
+newtype Parse b a = Parse {
+        runParse :: b -> Either String (a, b)
     }
 
 {- Instance declaration -}
@@ -64,7 +65,7 @@ instance Show AddressSize where
 
 
 {- Parser composition -}
-(==>) :: Parse a -> (a -> Parse b) -> Parse b
+(==>) :: Parse s a -> (a -> Parse s b) -> Parse s b
 firstParser ==> secondParser = Parse chainedParser
     where chainedParser initState = 
             case runParse firstParser initState of
@@ -72,33 +73,33 @@ firstParser ==> secondParser = Parse chainedParser
                 Right (firstResult, newState) ->
                     runParse (secondParser firstResult) newState
 
-(==>&) :: Parse a -> Parse b -> Parse b
+(==>&) :: Parse s a -> Parse s b -> Parse s b
 p ==>& f = p ==> \_ -> f
 
 {- Parse functor -}
-instance Functor Parse where
+instance Functor (Parse a) where
     fmap f parser = parser ==> \result ->
         identity (f result)
 
-instance Monad Parse where
+instance (ParseStateAccess a) => Monad (Parse a) where
     return = identity
     (>>=) = (==>)
     fail = bail
 
 {- Parser Utils -}
-getState :: Parse ParseState
+getState :: Parse a a
 getState = Parse (\s -> Right (s, s))
 
-putState :: ParseState -> Parse ()
+putState :: a -> Parse a ()
 putState s = Parse (\_ -> Right((), s))
 
 {-|
     Stop the parser and report an error.
 -}
-bail :: String -> Parse a
+bail :: (ParseStateAccess s) => String -> Parse s a
 bail err = Parse $ \s -> Left $ "byte offset " ++ show (offset s) ++ ": " ++ err
 
-identity :: a -> Parse a
+identity :: a -> Parse s a
 identity a = Parse (\s -> Right (a, s))
 
 {- Parse primitive -}
@@ -114,16 +115,16 @@ w32tow64 :: Word32 -> Word32 -> Word64
 w32tow64 mosteWord lessWord = 
     fromIntegral lessWord + (fromIntegral mosteWord `shiftL` 32)
 
-parseByte :: Parse Word8
+parseByte :: (ParseStateAccess s) => Parse s Word8
 parseByte =
     getState ==> \initState ->
         if (offset initState) >= B.length (string initState) 
         then bail "no more input"
-        else Parse (\_ -> Right(B.index (string initState) (offset initState), initState { offset = (offset initState + 1)}))
+        else Parse (\_ -> Right(B.index (string initState) (offset initState), putOffset initState (offset initState + 1)))
 
-parseHalf :: Parse Word16
+parseHalf :: (ParseStateAccess s) => Parse s Word16
 parseHalf = getState ==> \state ->
-    case stateEndianness state of
+    case endianness state of
         LittleEndian ->
             parseByte ==> \lessByte ->
             parseByte ==> \mostByte ->
@@ -133,9 +134,9 @@ parseHalf = getState ==> \state ->
             parseByte ==> \lessByte ->
                 identity $ w8tow16 mostByte lessByte
 
-parseWord :: Parse Word32
+parseWord :: (ParseStateAccess s) => Parse s Word32
 parseWord = getState ==> \state ->
-    case stateEndianness state of
+    case endianness state of
         LittleEndian ->
             parseHalf ==> \lessBytes ->
             parseHalf ==> \mosteBytes ->
@@ -145,9 +146,9 @@ parseWord = getState ==> \state ->
             parseHalf ==> \lessBytes ->
                 identity $ w16tow32 mosteBytes lessBytes
 
-parseGWord :: Parse Word64
+parseGWord :: (ParseStateAccess s) => Parse s Word64
 parseGWord = getState ==> \state ->
-    case stateEndianness state of 
+    case endianness state of 
         LittleEndian ->
             parseWord ==> \lessWord ->
             parseWord ==> \mosteWord ->
@@ -157,7 +158,7 @@ parseGWord = getState ==> \state ->
             parseWord ==> \lessWord ->
                 identity $ w32tow64 mosteWord lessWord
 
-skip :: Int -> Parse ()
+skip :: (ParseStateAccess s) => Int -> Parse s ()
 skip 0 = identity ()
 skip n
     | n > 0     = parseByte ==>&
@@ -167,24 +168,24 @@ skip n
 w2c :: Word8 -> Char
 w2c = chr . fromIntegral
 
-parseChar :: Parse Char
+parseChar :: (ParseStateAccess s) => Parse s Char
 parseChar = w2c <$> parseByte
 
-peekByte :: Parse (Maybe Word8)
+peekByte :: (ParseStateAccess s) => Parse s (Maybe Word8)
 peekByte = do
     state <- getState
     if (offset state) >= B.length (string state)
     then return Nothing
     else return (Just (B.index (string state) (offset state)))
 
-peekChar :: Parse (Maybe Char)
+peekChar :: (ParseStateAccess s) => Parse s (Maybe Char)
 peekChar = fmap w2c <$> peekByte
 
 {-|
     Parse until a condition is met and report the result as list of byte.
     The result can be an empty list.
 -}
-parseWhile :: (Word8 -> Bool) -> Parse [Word8]
+parseWhile :: (ParseStateAccess s) => (Word8 -> Bool) -> Parse s [Word8]
 parseWhile p = (fmap p <$> peekByte) ==> \mp ->
                if mp == Just True
                then parseByte ==> \b ->
@@ -193,23 +194,23 @@ parseWhile p = (fmap p <$> peekByte) ==> \mp ->
 {-|
     Parse a continuous byte of alpha numeric character and report it as a String.
  -}
-parseIdentifier :: Parse String
+parseIdentifier :: (ParseStateAccess s) => Parse s String
 parseIdentifier = fmap w2c <$> parseWhile (isAlphaNum . w2c)
 
 {-|
     Assert a condition and stop parsing if the condition is not met.
     It report the text error to the client.
  -}
-assert :: Bool -> String -> Parse ()
+assert :: (ParseStateAccess s) => Bool -> String -> Parse s ()
 assert True  _   = identity ()
 assert False err = bail err
 
 {-|
   Parse engine that chain all the parser 
 -}
-parse :: Parse a -> B.ByteString -> Either String a
-parse parser input =
-    case runParse parser (ParseState input 0 LittleEndian S32) of
+parse :: b -> Parse b a -> B.ByteString -> Either String a
+parse initState parser input =
+    case runParse parser initState of
         Left err            -> Left err
         Right (result, _)   -> Right result
 

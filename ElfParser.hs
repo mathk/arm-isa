@@ -7,9 +7,11 @@
  -}
 module ElfParser
     (
-      parseELFHeader
+      parseELFHeader,
+      parseElf
     ) where
 
+import qualified Data.ByteString as B
 import FileDecoding
 import Text.Printf
 import Data.Word
@@ -37,7 +39,7 @@ data ELFHeaderMachine =
 data ELFHeader = ELFHeader {
         magic :: ELFHeaderMagic,
         format :: AddressSize,
-        endianness :: Endianness,
+        fileEndianness :: Endianness,
         version :: ELFHeaderVersion,
         osabi :: ELFHeaderABI,
         objectType :: ELFHeaderType,
@@ -52,6 +54,13 @@ data ELFHeader = ELFHeader {
         shentsize :: Word16,
         shnum :: Word16,
         shstrndx :: Word16
+    }
+
+data ParseElfState = ParseElfState {
+        elfOffset :: Int,
+        elfString :: B.ByteString,
+        elfEndianness :: Endianness,
+        elfSize :: AddressSize
     }
 
 newtype Address = Address (Either Word32 Word64)
@@ -86,7 +95,7 @@ instance Show ELFHeaderMachine where
     show ELFAArch64 = "AArch64"
 
 instance Show ELFHeader where
-    show ELFHeader { magic=m, format=c, endianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi} =
+    show ELFHeader { magic=m, format=c, fileEndianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi} =
         printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X\nHeader Size: %d\nProgram Header Size: %d\nProgram Header Entry Number: %d\nSection Header Size: %d\nSection Header Entry Number: %d\nIndex Section Name: %d"
             (show m)
             (show c)
@@ -109,33 +118,41 @@ instance Show ELFHeader where
 instance Show ELFHeaderABI where
     show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
 
+
+instance ParseStateAccess ParseElfState where
+    offset = elfOffset
+    string = elfString
+    endianness = elfEndianness
+    putOffset a off = a { elfOffset = off }
+    
+
 {- ELf specific routine -}
-parseELFHeaderClass :: Parse AddressSize
+parseELFHeaderClass :: Parse ParseElfState AddressSize
 parseELFHeaderClass = parseByte ==> \b ->
         case b of
             1 -> getState ==> \state -> 
-                 putState state {size = S32} ==>& identity S32
+                 putState state {elfSize = S32} ==>& identity S32
             2 -> getState ==> \state ->
-                 putState state {size = S64} ==>& identity S64
+                 putState state {elfSize = S64} ==>& identity S64
             _ -> bail $ printf "Unknown class (0x02X)" b
 
-parseELFHeaderMagic :: Parse ELFHeaderMagic
+parseELFHeaderMagic :: Parse ParseElfState ELFHeaderMagic
 parseELFHeaderMagic = parseByte ==> \magicByte ->
         assert (magicByte == 0x7F) "First magic byte is wrong" ==>&
         parseIdentifier ==> \ident ->
             assert (ident == "ELF") (printf "Magic string is not ELF %s" ident) ==>&
             identity (ELFHeaderMagic magicByte ident)
 
-parseELFHeaderEndianness :: Parse Endianness
+parseELFHeaderEndianness :: Parse ParseElfState Endianness
 parseELFHeaderEndianness = parseByte ==> \b ->
             case b of
                 1 -> getState ==> \state ->
-                     putState state {stateEndianness = LittleEndian } ==>& identity LittleEndian
+                     putState state {elfEndianness = LittleEndian } ==>& identity LittleEndian
                 0 -> getState ==> \state ->
-                     putState state {stateEndianness = BigEndian} ==>& identity BigEndian
+                     putState state {elfEndianness = BigEndian} ==>& identity BigEndian
                 _ -> bail $ printf "Bad endianness (0x%02X)" b
 
-parseELFHeaderType :: Parse ELFHeaderType
+parseELFHeaderType :: Parse ParseElfState ELFHeaderType
 parseELFHeaderType = parseHalf ==> \b ->
         case b of
             1 -> identity ELFRelocatable
@@ -144,7 +161,7 @@ parseELFHeaderType = parseHalf ==> \b ->
             4 -> identity ELFCore
             _ -> bail $ printf "Bad elf type (0x%02X)" b
 
-parseELFHeaderMachine :: Parse ELFHeaderMachine
+parseELFHeaderMachine :: Parse ParseElfState ELFHeaderMachine
 parseELFHeaderMachine = parseHalf ==> \b ->
         case b of
             0x02 -> identity ELFSPARC
@@ -158,25 +175,25 @@ parseELFHeaderMachine = parseHalf ==> \b ->
             0xB7 -> identity ELFAArch64
             _ -> bail $ printf "Unknown machine (0x%02X)" b
 
-parseELFHeaderVersion :: Parse ELFHeaderVersion
+parseELFHeaderVersion :: Parse ParseElfState ELFHeaderVersion
 parseELFHeaderVersion = parseByte ==> \b ->
         case b of
             1 -> identity ELFDefaultVersion
             _ -> identity ELFOtherVersion
 
-parseELFHeaderABI :: Parse ELFHeaderABI
+parseELFHeaderABI :: Parse ParseElfState ELFHeaderABI
 parseELFHeaderABI = parseByte ==> \b ->
         identity (ELFHeaderABI b)
 
-parseELFAddress :: Parse Address
+parseELFAddress :: Parse ParseElfState Address
 parseELFAddress = getState ==> \state ->
-    case size state of
+    case elfSize state of
         S32 -> parseWord ==> \w -> identity $ Address (Left w)
         S64 -> parseGWord ==> \w -> identity $ Address (Right w)
 {-|
     This funcition parse the ELF header extracting all the usefull information
  -}
-parseELFHeader :: Parse ELFHeader
+parseELFHeader :: Parse ParseElfState ELFHeader
 parseELFHeader = do
         m <- parseELFHeaderMagic
         f <- parseELFHeaderClass
@@ -197,5 +214,8 @@ parseELFHeader = do
         shes <- parseHalf
         shn <- parseHalf
         shsi <- parseHalf
-        return ELFHeader {magic=m, format=f, endianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
+        return ELFHeader {magic=m, format=f, fileEndianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
+
+parseElf :: Parse ParseElfState a -> B.ByteString -> Either String a 
+parseElf parser string = parse ParseElfState {elfOffset=0, elfSize=S32, elfEndianness=LittleEndian, elfString=string } parser string
 
