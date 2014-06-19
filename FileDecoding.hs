@@ -116,11 +116,11 @@ w32tow64 mosteWord lessWord =
     fromIntegral lessWord + (fromIntegral mosteWord `shiftL` 32)
 
 parseByte :: (ParseStateAccess s) => Parse s Word8
-parseByte =
-    getState ==> \initState ->
-        if (offset initState) >= B.length (string initState) 
-        then bail "no more input"
-        else Parse (\_ -> Right(B.index (string initState) (offset initState), putOffset initState (offset initState + 1)))
+parseByte = do
+    initState <- getState
+    assert ((offset initState) < B.length (string initState)) "no more input"
+    putState $ putOffset initState (offset initState + 1)
+    return $ B.index (string initState) (offset initState)
 
 parseHalf :: (ParseStateAccess s) => Parse s Word16
 parseHalf = getState ==> \state ->
@@ -164,6 +164,15 @@ skip n
     | n > 0     = parseByte ==>&
                     skip (n - 1)
     | otherwise = bail "Can not skip negative amount of byte"
+
+{-|
+    Move to an arbitrary location in the file. 
+ -}
+moveTo :: (ParseStateAccess s) => Int -> Parse s ()
+moveTo n = do
+    state <- getState
+    assert (n < 0 || n >= B.length (string state)) (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
+    putState $ putOffset state n
 
 w2c :: Word8 -> Char
 w2c = chr . fromIntegral
