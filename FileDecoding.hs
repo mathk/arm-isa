@@ -22,6 +22,7 @@ module FileDecoding
       parseIdentifier,
       bail,
       skip,
+      moveTo,
       getState,
       putState,
       assert
@@ -92,6 +93,9 @@ getState = Parse (\s -> Right (s, s))
 
 putState :: a -> Parse a ()
 putState s = Parse (\_ -> Right((), s))
+
+isInRange :: Int -> B.ByteString -> Bool
+isInRange n string = n >= 0 && (B.length string) < n 
 
 {-|
     Stop the parser and report an error.
@@ -171,7 +175,7 @@ skip n
 moveTo :: (ParseStateAccess s) => Int -> Parse s ()
 moveTo n = do
     state <- getState
-    assert (n < 0 || n >= B.length (string state)) (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
+    assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
     putState $ putOffset state n
 
 w2c :: Word8 -> Char

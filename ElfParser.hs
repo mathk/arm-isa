@@ -8,10 +8,12 @@
 module ElfParser
     (
       parseELFHeader,
+      parseELFFile,
       parseElf
     ) where
 
 import qualified Data.ByteString as B
+import Control.Applicative
 import FileDecoding
 import Text.Printf
 import Data.Word
@@ -24,6 +26,24 @@ data ELFHeaderVersion = ELFDefaultVersion | ELFOtherVersion
 data ELFHeaderABI = ELFHeaderABI Word8
 
 data ELFHeaderType = ELFRelocatable | ELFExecutable | ELFShared | ELFCore
+
+data ELFProgramHeaderType =
+        ELFPHTNull      |
+        ELFPHTLoad      |
+        ELFPHTDynamic   |
+        ELFPHTInterp    |
+        ELFPHTNote      |
+        ELFPHTShlib     |
+        ELFPHTPhdr      |
+        ELFPHTTls       |
+        ELFPHTLoos      |
+        ELFPHTHios      |
+        ELFPHTLoProc    |
+        ELFPHTHiProc    |
+        ELFPHTGnuEhFrame|
+        ELFPHTGnuStack  |
+        ELFPHTGnuRelro  |
+        ELFPHTArmExUnwind
 
 data ELFHeaderMachine = 
         ELFSPARC    |
@@ -56,6 +76,22 @@ data ELFHeader = ELFHeader {
         shstrndx :: Word16
     }
 
+data ELFProgramHeader = ELFProgramHeader {
+        phtype :: ELFProgramHeaderType,
+        phoffset :: Offset,
+        phvaddr :: Address,
+        phpaddr :: Address,
+        phfilesz :: MachineInt,
+        phmemsz :: MachineInt,
+        phflags :: MachineInt,
+        phalign :: MachineInt
+    }
+
+data ELFInfo = ELFInfo {
+        elfHeader :: ELFHeader,
+        elfProgramHeaders :: [ELFProgramHeader]
+    } deriving (Show)
+
 data ParseElfState = ParseElfState {
         elfOffset :: Int,
         elfString :: B.ByteString,
@@ -64,11 +100,21 @@ data ParseElfState = ParseElfState {
     }
 
 newtype Address = Address (Either Word32 Word64)
+newtype Offset = Offset (Either Word32 Word64)
+newtype MachineInt = MachineInt (Either Word32 Word64)
 
 {- Instance declaration -}
 instance Show Address where
     show (Address (Left w)) = printf "0x%08X" w
     show (Address (Right w)) = printf "0x%016X" w
+
+instance Show Offset where
+    show (Offset (Left w)) = printf "%d" w
+    show (Offset (Right w)) = printf "%d" w
+
+instance Show MachineInt where 
+    show (MachineInt (Left w)) = printf "%d" w
+    show (MachineInt (Right w)) = printf "%d" w
 
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
@@ -94,6 +140,25 @@ instance Show ELFHeaderMachine where
     show ELFx86_64  = "x86-64"
     show ELFAArch64 = "AArch64"
 
+instance Show ELFProgramHeaderType where
+    show ELFPHTNull      = "Null Header"
+    show ELFPHTLoad      = "Loadable Segment"
+    show ELFPHTDynamic   = "Dynamic Linking Information"
+    show ELFPHTInterp    = "Interpreter Path"
+    show ELFPHTNote      = "Auxiliary Information"
+    show ELFPHTShlib     = "Shlib"
+    show ELFPHTPhdr      = "Program Header"
+    show ELFPHTTls       = "Thread Local Storage"
+    show ELFPHTLoos      = "Loos OS specific information"
+    show ELFPHTHios      = "Hios OS specific information"
+    show ELFPHTLoProc    = "LoProc Processor specific information"
+    show ELFPHTHiProc    = "HiProc Processor specific information"   
+    show ELFPHTGnuEhFrame= "Exception Handling Information"
+    show ELFPHTGnuStack  = "Stack Permissions"
+    show ELFPHTGnuRelro  = "Read Only Relocation Segment"
+    show ELFPHTArmExUnwind= "Excpetion Unwind Table"
+
+
 instance Show ELFHeader where
     show ELFHeader { magic=m, format=c, fileEndianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi} =
         printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X\nHeader Size: %d\nProgram Header Size: %d\nProgram Header Entry Number: %d\nSection Header Size: %d\nSection Header Entry Number: %d\nIndex Section Name: %d"
@@ -114,6 +179,18 @@ instance Show ELFHeader where
             shes
             shn
             shsi
+
+instance Show ELFProgramHeader where 
+    show ELFProgramHeader {phtype=pht, phoffset=pho, phvaddr=phv, phpaddr=php, phfilesz=phfs, phmemsz=phm, phflags=phf, phalign=pha} =
+        printf "Program Header Type: %s\nProgram Header Offset: %s\nVirtual Address: %s\nPhysical Address: %s\nSegment File Size: %s\nSegment Memory Size: %s\nFlags: %s\nSegment Alignment: %s"
+            (show pht)
+            (show pho)
+            (show phv)
+            (show php)
+            (show phfs)
+            (show phm)
+            (show phf)
+            (show pha)
 
 instance Show ELFHeaderABI where
     show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
@@ -215,6 +292,83 @@ parseELFHeader = do
         shn <- parseHalf
         shsi <- parseHalf
         return ELFHeader {magic=m, format=f, fileEndianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
+
+parseELFOffset :: Parse ParseElfState Offset
+parseELFOffset = do
+    state <- getState
+    case elfSize state of 
+        S32 -> do 
+            w <- parseWord
+            return $ Offset (Left w)
+        S64 -> do
+            w <- parseGWord
+            return $ Offset (Right w) 
+
+parseELFMachineInt :: Parse ParseElfState MachineInt
+parseELFMachineInt = do
+    state <- getState
+    case elfSize state of 
+        S32 -> do 
+            w <- parseWord
+            return $ MachineInt (Left w)
+        S64 -> do
+            w <- parseGWord
+            return $ MachineInt (Right w) 
+
+parseELFProgramHeaderType :: Parse ParseElfState ELFProgramHeaderType
+parseELFProgramHeaderType = do
+    w <- parseWord
+    case w of 
+        0 -> return ELFPHTNull
+        1 -> return ELFPHTLoad
+        2 -> return ELFPHTDynamic
+        3 -> return ELFPHTInterp
+        4 -> return ELFPHTNote
+        5 -> return ELFPHTShlib
+        6 -> return ELFPHTPhdr
+        7 -> return ELFPHTTls
+        0x60000000 -> return ELFPHTLoos
+        0x6474e550 -> return ELFPHTGnuEhFrame
+        0x6474e551 -> return ELFPHTGnuStack
+        0x6474e552 -> return ELFPHTGnuRelro
+        0x6FFFFFFF -> return ELFPHTHios
+        0x70000000 -> return ELFPHTLoProc
+        0x70000001 -> return ELFPHTArmExUnwind 
+        0x7FFFFFFF -> return ELFPHTHiProc
+        _ -> bail $ printf "Unrecognized program header type 0x%08X" w
+
+parseELFProgramHeader :: Parse ParseElfState ELFProgramHeader
+parseELFProgramHeader = do
+    pht <- parseELFProgramHeaderType
+    pho <- parseELFOffset
+    phv <- parseELFAddress
+    php <- parseELFAddress
+    phfs <- parseELFMachineInt
+    phm <- parseELFMachineInt
+    phf <- parseELFMachineInt
+    pha <- parseELFMachineInt
+    return ELFProgramHeader {phtype=pht, phoffset=pho, phvaddr=phv, phpaddr=php, phfilesz=phfs, phmemsz=phm, phflags=phf, phalign=pha}
+
+
+parseELFProgramHeaders :: Int -> Parse ParseElfState [ELFProgramHeader]
+parseELFProgramHeaders 0 = return []
+parseELFProgramHeaders n
+    | n > 0 = do 
+        h <- parseELFProgramHeader
+        (h:) <$> (parseELFProgramHeaders (n - 1))
+    | otherwise = bail "Can not parse negative number of program header" 
+
+addressToInt :: Address -> Int
+addressToInt (Address (Left i)) = fromIntegral i
+addressToInt (Address (Right i)) = fromIntegral i
+
+parseELFFile :: Parse ParseElfState ELFInfo
+parseELFFile = do
+    hdr <- parseELFHeader
+    moveTo $ addressToInt (phoff hdr)
+    phs <- parseELFProgramHeaders $ fromIntegral (phnum hdr)
+    return ELFInfo {elfHeader=hdr, elfProgramHeaders=phs}
+    
 
 parseElf :: Parse ParseElfState a -> B.ByteString -> Either String a 
 parseElf parser string = parse ParseElfState {elfOffset=0, elfSize=S32, elfEndianness=LittleEndian, elfString=string } parser string
