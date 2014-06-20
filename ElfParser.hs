@@ -142,7 +142,8 @@ data ParseElfState = ParseElfState {
         elfOffset :: Int,
         elfString :: B.ByteString,
         elfEndianness :: Endianness,
-        elfSize :: AddressSize
+        elfSize :: AddressSize,
+        elfOffsetState :: [Int]
     }
 
 newtype Address = Address (Either Word32 Word64)
@@ -294,6 +295,8 @@ instance ParseStateAccess ParseElfState where
     string = elfString
     endianness = elfEndianness
     putOffset a off = a { elfOffset = off }
+    pushOffset a off = a { elfOffset=off, elfOffsetState=(elfOffset a):(elfOffsetState a)}
+    popOffset a@ParseElfState {elfOffsetState=x:xs} = a {elfOffsetState=xs} 
     
 
 {- ELf specific routine -}
@@ -517,14 +520,22 @@ offsetToInt (Offset (Right i)) = fromIntegral i
 
 getELFSectionName :: ELFSectionHeader -> Parse ParseElfState ELFSectionHeader
 getELFSectionName h = do
-    forwardTo $ offsetToInt (shoffset h)
+    pushTo $ offsetToInt (shoffset h)
     string <- parseELFString
+    popFrom 
     return h {shname=ELFSectionName (Left string)} 
+
+getAllELFSectionName :: [ELFSectionHeader] -> Parse ParseElfState [ELFSectionHeader]
+getAllELFSectionName [] = identity []
+getAllELFSectionName (x:xs) = do
+    sname <- getELFSectionName x
+    (sname:) <$> (getAllELFSectionName xs)
 
 discoverELFSectionNames :: ELFInfo -> Parse ParseElfState ELFInfo
 discoverELFSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
     moveTo $ offsetToInt (shoffset (s !! (fromIntegral (shstrndx h))))
-    return info
+    sWithName <- getAllELFSectionName s
+    return info {elfSectionHeaders=sWithName}
     
     
 
@@ -535,9 +546,10 @@ parseELFFile = do
     phs <- parseELFProgramHeaders $ fromIntegral (phnum hdr)
     moveTo $ addressToInt (shoff hdr)
     shs <- parseELFSectionHeaders $ fromIntegral (shnum hdr)
-    return ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
+    discoverELFSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
+    
     
 
 parseElf :: Parse ParseElfState a -> B.ByteString -> Either String a 
-parseElf parser string = parse ParseElfState {elfOffset=0, elfSize=S32, elfEndianness=LittleEndian, elfString=string } parser string
+parseElf parser string = parse ParseElfState {elfOffset=0, elfSize=S32, elfEndianness=LittleEndian, elfString=string, elfOffsetState=[] } parser string
 

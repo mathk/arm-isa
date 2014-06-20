@@ -26,6 +26,8 @@ module FileDecoding
       skip,
       moveTo,
       forwardTo,
+      pushTo,
+      popFrom,
       getState,
       putState,
       assert
@@ -49,6 +51,8 @@ class ParseStateAccess a where
     string :: a -> B.ByteString
     endianness :: a -> Endianness
     putOffset :: a -> Int -> a
+    pushOffset :: a -> Int -> a
+    popOffset :: a -> a
 
 data Endianness = BigEndian | LittleEndian
 
@@ -184,8 +188,18 @@ moveTo n = do
 forwardTo :: (ParseStateAccess s) => Int -> Parse s ()
 forwardTo n = do
     state <- getState
-    assert (not $ isInRange (n + (offset state)) (string state)) (printf "Going forward of %d byte is not possible. Expected [%d,%d]" n (offset state) (B.length $ string state))
-    putState $ putOffset state (n +(offset state))
+    moveTo (n +(offset state))
+
+pushTo :: (ParseStateAccess s) => Int -> Parse s ()
+pushTo n = do
+    state <- getState
+    assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
+    putState $ pushOffset state n
+
+popFrom :: (ParseStateAccess s) => Parse s ()
+popFrom = do
+    state <- getState
+    putState $ popOffset state
 
 w2c :: Word8 -> Char
 w2c = chr . fromIntegral
