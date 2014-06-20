@@ -45,6 +45,36 @@ data ELFProgramHeaderType =
         ELFPHTGnuRelro  |
         ELFPHTArmExUnwind
 
+data ELFSectionHeaderType =
+       ELFSHTNull       |
+       ELFSHTProgBits   |
+       ELFSHTSymTab     |
+       ELFSHTStrTab     |
+       ELFSHTRela       |
+       ELFSHTHash       |
+       ELFSHTDynamic    |
+       ELFSHTNote       |
+       ELFSHTNoBits     |
+       ELFSHTRel        |
+       ELFSHTShlib      |
+       ELFSHTDynSym     |
+       ELFSHTInitArray  |
+       ELFSHTFiniArray  |
+       ELFSHTPreinitArray |
+       ELFSHTGroup      |
+       ELFSHTSymTabShndx|
+       ELFSHTLoos       |
+       ELFSHTHios       |
+       ELFSHTLoProc     |
+       ELFSHTArmExIdx   |
+       ELFSHTArmPreemptMap |
+       ELFSHTArmAttributs |
+       ELFSHTArmDebugOverlay |
+       ELFSHTArmOverlaySection |
+       ELFSHTHiProc     |
+       ELFSHTLoUser     |
+       ELFSHTHiUser
+
 data ELFHeaderMachine = 
         ELFSPARC    |
         ELFx86      |
@@ -87,9 +117,23 @@ data ELFProgramHeader = ELFProgramHeader {
         phalign :: MachineInt
     }
 
+data ELFSectionHeader = ELFSectionHeader {
+        shname :: Word32,
+        shtype :: ELFSectionHeaderType,
+        shflags :: MachineInt,
+        shaddr :: Address,
+        shoffset :: Offset,
+        shsize :: MachineInt,
+        shlink :: Word32,
+        shinfo :: Word32,
+        shaddralign :: MachineInt,
+        shentrysize :: MachineInt
+    }
+
 data ELFInfo = ELFInfo {
         elfHeader :: ELFHeader,
-        elfProgramHeaders :: [ELFProgramHeader]
+        elfProgramHeaders :: [ELFProgramHeader],
+        elfSectionHeaders :: [ELFSectionHeader]
     } deriving (Show)
 
 data ParseElfState = ParseElfState {
@@ -158,6 +202,35 @@ instance Show ELFProgramHeaderType where
     show ELFPHTGnuRelro  = "Read Only Relocation Segment"
     show ELFPHTArmExUnwind= "Excpetion Unwind Table"
 
+instance Show ELFSectionHeaderType where
+    show ELFSHTNull         = "Null Header"
+    show ELFSHTProgBits     = "Program Information"
+    show ELFSHTSymTab       = "Symbol Table"
+    show ELFSHTStrTab       = "String Table"
+    show ELFSHTRela         = "Relocation Entries with Addends"
+    show ELFSHTHash         = "Hash Table"
+    show ELFSHTDynamic      = "Dynamic Linking Information"
+    show ELFSHTNote         = "Note Section"
+    show ELFSHTNoBits       = "No Bits"
+    show ELFSHTRel          = "Relocation Entries without Addends"
+    show ELFSHTShlib        = "Reserved"
+    show ELFSHTDynSym       = "Symbol Table"
+    show ELFSHTInitArray    = "Array of Initialization Functions"
+    show ELFSHTFiniArray    = "Array of termination Function"
+    show ELFSHTPreinitArray = "Pre initialization Array of Functions"
+    show ELFSHTGroup        = "Group Sections"
+    show ELFSHTSymTabShndx  = "Array of Symbol Table Index"
+    show ELFSHTLoos         = "Loos OS Range"
+    show ELFSHTHios         = "Hios OS Range"
+    show ELFSHTLoProc       = "LoProc Prcocessor Range"
+    show ELFSHTHiProc       = "HiProc Processor Range"
+    show ELFSHTArmExIdx     = "Exception Index Table"
+    show ELFSHTArmPreemptMap= "BPABI DLL dynamic linking pre-emption map"
+    show ELFSHTArmAttributs = "Object file compatibility attributes"
+    show ELFSHTArmDebugOverlay = "Debug Overlay"
+    show ELFSHTArmOverlaySection = "Overlay Section"
+    show ELFSHTLoUser       = "LoUser User Range"
+    show ELFSHTHiUser       = "HiUser User Range"
 
 instance Show ELFHeader where
     show ELFHeader { magic=m, format=c, fileEndianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi} =
@@ -191,6 +264,20 @@ instance Show ELFProgramHeader where
             (show phm)
             (show phf)
             (show pha)
+
+instance Show ELFSectionHeader where
+    show ELFSectionHeader {shname=shn, shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes} =
+        printf "Section Name: %s\nSection Type: %s\nSection Flags: %s\n Section Address: %s\nSection Offset: %s\nSection Size: %s\nSection Link: %s\nSection Info: %s\nSection Address Align: %s\nSection Entry Size: %s"
+            (show shn)
+            (show sht)
+            (show shflgs)
+            (show sha)
+            (show sho)
+            (show shs)
+            (show shl)
+            (show shi)
+            (show shaa)
+            (show shes)
 
 instance Show ELFHeaderABI where
     show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
@@ -337,6 +424,40 @@ parseELFProgramHeaderType = do
         0x7FFFFFFF -> return ELFPHTHiProc
         _ -> bail $ printf "Unrecognized program header type 0x%08X" w
 
+parseELFSectionHeaderType :: Parse ParseElfState ELFSectionHeaderType
+parseELFSectionHeaderType = do
+    w <- parseWord
+    case w of 
+        0 -> return ELFSHTNull
+        1 -> return ELFSHTProgBits
+        2 -> return ELFSHTSymTab
+        3 -> return ELFSHTStrTab
+        4 -> return ELFSHTRela
+        5 -> return ELFSHTHash
+        6 -> return ELFSHTDynamic
+        7 -> return ELFSHTNote
+        8 -> return ELFSHTNoBits
+        9 -> return ELFSHTRel
+        10 -> return ELFSHTShlib
+        11 -> return ELFSHTDynSym
+        14 -> return ELFSHTInitArray
+        15 -> return ELFSHTFiniArray
+        16 -> return ELFSHTPreinitArray
+        17 -> return ELFSHTGroup
+        18 -> return ELFSHTSymTabShndx
+        0x60000000 -> return ELFSHTLoos
+        0x6FFFFFFF -> return ELFSHTHios
+        0x70000000 -> return ELFSHTLoProc
+        0x70000001 -> return ELFSHTArmExIdx
+        0x70000002 -> return ELFSHTArmPreemptMap
+        0x70000003 -> return ELFSHTArmAttributs
+        0x70000004 -> return ELFSHTArmDebugOverlay
+        0x70000005 -> return ELFSHTArmOverlaySection
+        0x7FFFFFFF -> return ELFSHTHiProc
+        0x80000000 -> return ELFSHTLoUser
+        0x8FFFFFFF -> return ELFSHTHiUser
+        _ -> bail $ printf "Unrecognized section header type 0x%08X" w
+
 parseELFProgramHeader :: Parse ParseElfState ELFProgramHeader
 parseELFProgramHeader = do
     pht <- parseELFProgramHeaderType
@@ -349,14 +470,33 @@ parseELFProgramHeader = do
     pha <- parseELFMachineInt
     return ELFProgramHeader {phtype=pht, phoffset=pho, phvaddr=phv, phpaddr=php, phfilesz=phfs, phmemsz=phm, phflags=phf, phalign=pha}
 
+parseELFSectionHeader :: Parse ParseElfState ELFSectionHeader
+parseELFSectionHeader = do
+    shn <- parseWord
+    sht <- parseELFSectionHeaderType
+    shflgs <- parseELFMachineInt
+    sha <- parseELFAddress
+    sho <-parseELFOffset
+    shs <- parseELFMachineInt
+    shl <- parseWord
+    shi <- parseWord
+    shaa <- parseELFMachineInt
+    shes <- parseELFMachineInt
+    return ELFSectionHeader {shname=shn, shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes}
+
+parseELFArray :: Parse ParseElfState a -> Int -> Parse ParseElfState [a]
+parseELFArray parser 0 = return []
+parseELFArray parser n
+    | n > 0 = do 
+        h <- parser
+        (h:) <$> (parseELFArray parser (n - 1))
+    | otherwise = bail "Can not parse negative number of array element" 
 
 parseELFProgramHeaders :: Int -> Parse ParseElfState [ELFProgramHeader]
-parseELFProgramHeaders 0 = return []
-parseELFProgramHeaders n
-    | n > 0 = do 
-        h <- parseELFProgramHeader
-        (h:) <$> (parseELFProgramHeaders (n - 1))
-    | otherwise = bail "Can not parse negative number of program header" 
+parseELFProgramHeaders = parseELFArray parseELFProgramHeader
+
+parseELFSectionHeaders :: Int -> Parse ParseElfState [ELFSectionHeader]
+parseELFSectionHeaders = parseELFArray parseELFSectionHeader
 
 addressToInt :: Address -> Int
 addressToInt (Address (Left i)) = fromIntegral i
@@ -367,7 +507,9 @@ parseELFFile = do
     hdr <- parseELFHeader
     moveTo $ addressToInt (phoff hdr)
     phs <- parseELFProgramHeaders $ fromIntegral (phnum hdr)
-    return ELFInfo {elfHeader=hdr, elfProgramHeaders=phs}
+    moveTo $ addressToInt (shoff hdr)
+    shs <- parseELFSectionHeaders $ fromIntegral (shnum hdr)
+    return ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
     
 
 parseElf :: Parse ParseElfState a -> B.ByteString -> Either String a 
