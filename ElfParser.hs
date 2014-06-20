@@ -117,8 +117,10 @@ data ELFProgramHeader = ELFProgramHeader {
         phalign :: MachineInt
     }
 
+data ELFSectionName = ELFSectionName (Either String Word32)
+
 data ELFSectionHeader = ELFSectionHeader {
-        shname :: Word32,
+        shname :: ELFSectionName,
         shtype :: ELFSectionHeaderType,
         shflags :: MachineInt,
         shaddr :: Address,
@@ -162,6 +164,10 @@ instance Show MachineInt where
 
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
+
+instance Show ELFSectionName where
+    show (ELFSectionName (Left s)) = s
+    show (ELFSectionName (Right s)) = (show s)
 
 instance Show ELFHeaderVersion where
     show ELFDefaultVersion = "Original"
@@ -267,7 +273,7 @@ instance Show ELFProgramHeader where
 
 instance Show ELFSectionHeader where
     show ELFSectionHeader {shname=shn, shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes} =
-        printf "Section Name: %s\nSection Type: %s\nSection Flags: %s\n Section Address: %s\nSection Offset: %s\nSection Size: %s\nSection Link: %s\nSection Info: %s\nSection Address Align: %s\nSection Entry Size: %s"
+        printf "Section Name: %s\nSection Type: %s\nSection Flags: %s\nSection Address: %s\nSection Offset: %s\nSection Size: %s\nSection Link: %s\nSection Info: %s\nSection Address Align: %s\nSection Entry Size: %s"
             (show shn)
             (show sht)
             (show shflgs)
@@ -458,6 +464,9 @@ parseELFSectionHeaderType = do
         0x8FFFFFFF -> return ELFSHTHiUser
         _ -> bail $ printf "Unrecognized section header type 0x%08X" w
 
+parseELFString :: Parse ParseElfState String
+parseELFString = fmap w2c <$> parseWhile (\w -> not $ w == 0)
+
 parseELFProgramHeader :: Parse ParseElfState ELFProgramHeader
 parseELFProgramHeader = do
     pht <- parseELFProgramHeaderType
@@ -482,7 +491,7 @@ parseELFSectionHeader = do
     shi <- parseWord
     shaa <- parseELFMachineInt
     shes <- parseELFMachineInt
-    return ELFSectionHeader {shname=shn, shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes}
+    return ELFSectionHeader {shname=ELFSectionName (Right shn), shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes}
 
 parseELFArray :: Parse ParseElfState a -> Int -> Parse ParseElfState [a]
 parseELFArray parser 0 = return []
@@ -501,6 +510,23 @@ parseELFSectionHeaders = parseELFArray parseELFSectionHeader
 addressToInt :: Address -> Int
 addressToInt (Address (Left i)) = fromIntegral i
 addressToInt (Address (Right i)) = fromIntegral i
+
+offsetToInt :: Offset -> Int
+offsetToInt (Offset (Left i)) = fromIntegral i
+offsetToInt (Offset (Right i)) = fromIntegral i
+
+getELFSectionName :: ELFSectionHeader -> Parse ParseElfState ELFSectionHeader
+getELFSectionName h = do
+    forwardTo $ offsetToInt (shoffset h)
+    string <- parseELFString
+    return h {shname=ELFSectionName (Left string)} 
+
+discoverELFSectionNames :: ELFInfo -> Parse ParseElfState ELFInfo
+discoverELFSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
+    moveTo $ offsetToInt (shoffset (s !! (fromIntegral (shstrndx h))))
+    return info
+    
+    
 
 parseELFFile :: Parse ParseElfState ELFInfo
 parseELFFile = do

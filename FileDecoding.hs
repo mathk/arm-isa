@@ -13,6 +13,7 @@ module FileDecoding
       ParseStateAccess(..),
       (==>),
       (==>&),
+      w2c,
       parse,
       identity,
       parseByte,
@@ -20,9 +21,11 @@ module FileDecoding
       parseWord,
       parseGWord,
       parseIdentifier,
+      parseWhile,
       bail,
       skip,
       moveTo,
+      forwardTo,
       getState,
       putState,
       assert
@@ -177,6 +180,12 @@ moveTo n = do
     state <- getState
     assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
     putState $ putOffset state n
+
+forwardTo :: (ParseStateAccess s) => Int -> Parse s ()
+forwardTo n = do
+    state <- getState
+    assert (not $ isInRange (n + (offset state)) (string state)) (printf "Going forward of %d byte is not possible. Expected [%d,%d]" n (offset state) (B.length $ string state))
+    putState $ putOffset state (n +(offset state))
 
 w2c :: Word8 -> Char
 w2c = chr . fromIntegral
