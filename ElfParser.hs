@@ -295,8 +295,8 @@ instance ParseStateAccess ParseElfState where
     string = elfString
     endianness = elfEndianness
     putOffset a off = a { elfOffset = off }
-    pushOffset a off = a { elfOffset=off, elfOffsetState=(elfOffset a):(elfOffsetState a)}
-    popOffset a@ParseElfState {elfOffsetState=x:xs} = a {elfOffsetState=xs} 
+    pushOffset a@ParseElfState {elfOffsetState=x} off = a { elfOffset=off, elfOffsetState=(elfOffset a):x}
+    popOffset a@ParseElfState {elfOffsetState=x:xs} = a {elfOffset=x, elfOffsetState=xs} 
     
 
 {- ELf specific routine -}
@@ -519,8 +519,8 @@ offsetToInt (Offset (Left i)) = fromIntegral i
 offsetToInt (Offset (Right i)) = fromIntegral i
 
 getELFSectionName :: ELFSectionHeader -> Parse ParseElfState ELFSectionHeader
-getELFSectionName h = do
-    pushTo $ offsetToInt (shoffset h)
+getELFSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
+    pushForwardTo $ fromIntegral d
     string <- parseELFString
     popFrom 
     return h {shname=ELFSectionName (Left string)} 
@@ -537,8 +537,6 @@ discoverELFSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
     sWithName <- getAllELFSectionName s
     return info {elfSectionHeaders=sWithName}
     
-    
-
 parseELFFile :: Parse ParseElfState ELFInfo
 parseELFFile = do
     hdr <- parseELFHeader
@@ -547,8 +545,6 @@ parseELFFile = do
     moveTo $ addressToInt (shoff hdr)
     shs <- parseELFSectionHeaders $ fromIntegral (shnum hdr)
     discoverELFSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
-    
-    
 
 parseElf :: Parse ParseElfState a -> B.ByteString -> Either String a 
 parseElf parser string = parse ParseElfState {elfOffset=0, elfSize=S32, elfEndianness=LittleEndian, elfString=string, elfOffsetState=[] } parser string

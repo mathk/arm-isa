@@ -27,6 +27,7 @@ module FileDecoding
       moveTo,
       forwardTo,
       pushTo,
+      pushForwardTo,
       popFrom,
       getState,
       putState,
@@ -195,6 +196,11 @@ pushTo n = do
     state <- getState
     assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
     putState $ pushOffset state n
+
+pushForwardTo :: (ParseStateAccess s) => Int -> Parse s ()
+pushForwardTo n = do
+    state <- getState
+    pushTo (n+(offset state))
 
 popFrom :: (ParseStateAccess s) => Parse s ()
 popFrom = do
