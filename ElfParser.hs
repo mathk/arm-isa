@@ -7,6 +7,7 @@
  -}
 module ElfParser
     (
+      ELFInfo(..),
       parseELFHeader,
       parseELFFile,
       parseElf
