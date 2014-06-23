@@ -263,7 +263,7 @@ instance Show ELFHeader where
 
 instance Show ELFProgramHeader where 
     show ELFProgramHeader {phtype=pht, phoffset=pho, phvaddr=phv, phpaddr=php, phfilesz=phfs, phmemsz=phm, phflags=phf, phalign=pha} =
-        printf "Program Header Type: %s\nProgram Header Offset: %s\nVirtual Address: %s\nPhysical Address: %s\nSegment File Size: %s\nSegment Memory Size: %s\nFlags: %s\nSegment Alignment: %s"
+        printf "{\nProgram Header Type: %s\nProgram Header Offset: %s\nVirtual Address: %s\nPhysical Address: %s\nSegment File Size: %s\nSegment Memory Size: %s\nFlags: %s\nSegment Alignment: %s\n}"
             (show pht)
             (show pho)
             (show phv)
@@ -275,7 +275,7 @@ instance Show ELFProgramHeader where
 
 instance Show ELFSectionHeader where
     show ELFSectionHeader {shname=shn, shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes} =
-        printf "Section Name: %s\nSection Type: %s\nSection Flags: %s\nSection Address: %s\nSection Offset: %s\nSection Size: %s\nSection Link: %s\nSection Info: %s\nSection Address Align: %s\nSection Entry Size: %s"
+        printf "%s { \nSection Type: %s\nSection Flags: %s\nSection Address: %s\nSection Offset: %s\nSection Size: %s\nSection Link: %s\nSection Info: %s\nSection Address Align: %s\nSection Entry Size: %s\n}"
             (show shn)
             (show sht)
             (show shflgs)
