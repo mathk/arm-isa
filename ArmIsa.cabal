@@ -25,6 +25,6 @@ executable ArmIsa
   main-is:             Main.hs
   other-modules:       FileDecoding, ElfParser
   -- other-extensions:    
-  build-depends:       base >=4.6 && <4.7, bytestring >=0.10 && <0.11
+  build-depends:       base >=4.6 && <4.7, bytestring >=0.10 && <0.11, threepenny-gui, transformers
   -- hs-source-dirs:      
   default-language:    Haskell2010
