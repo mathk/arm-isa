@@ -18,6 +18,7 @@ import Control.Applicative
 import FileDecoding
 import Text.Printf
 import Data.Word
+import Data.List
 
 {- ELF Data type -}
 data ELFHeaderMagic = ELFHeaderMagic Word8 String
@@ -537,6 +538,11 @@ discoverELFSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
     moveTo $ offsetToInt (shoffset (s !! (fromIntegral (shstrndx h))))
     sWithName <- getAllELFSectionName s
     return info {elfSectionHeaders=sWithName}
+
+parseELFStringSection :: ELFSectionHeader -> Parse ParseElfState String
+parseELFStringSection ELFSectionHeader {shoffset=off} = do
+    moveTo $ offsetToInt off
+    parseELFString
     
 parseELFFile :: Parse ParseElfState ELFInfo
 parseELFFile = do
@@ -547,6 +553,21 @@ parseELFFile = do
     shs <- parseELFSectionHeaders $ fromIntegral (shnum hdr)
     discoverELFSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
 
+isComment :: ELFSectionHeader -> Bool
+isComment ELFSectionHeader {shname=ELFSectionName (Left s)}
+    | s == ".comment"   = True
+    | otherwise         = False
+isComment ELFSectionHeader {shname=ELFSectionName (Right s)} = False
+
+
+dumpELFComment :: ELFInfo -> Parse ParseElfState String
+dumpELFComment ELFInfo {elfSectionHeaders=shs} = do
+    case find isComment  shs of
+        Just s -> parseELFStringSection s
+        Nothing -> bail "Comment not found"
+
 parseElf :: Parse ParseElfState a -> B.ByteString -> Either String a 
 parseElf parser string = parse ParseElfState {elfOffset=0, elfSize=S32, elfEndianness=LittleEndian, elfString=string, elfOffsetState=[] } parser string
+
+
 
