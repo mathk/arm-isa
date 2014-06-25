@@ -9,14 +9,14 @@ module ElfParser
     (
       ELFInfo(..),
       ELFHeader(..),
-      parseELFHeader,
-      parseELFFile,
-      parseElf
+      parseHeader,
+      parseFile,
+      parse
     ) where
 
 import qualified Data.ByteString as B
 import Control.Applicative
-import FileDecoding
+import qualified FileDecoding as F
 import Text.Printf
 import Data.Word
 import Data.List
@@ -91,8 +91,8 @@ data ELFHeaderMachine =
 
 data ELFHeader = ELFHeader {
         magic :: ELFHeaderMagic,
-        format :: AddressSize,
-        fileEndianness :: Endianness,
+        format :: F.AddressSize,
+        fileEndianness :: F.Endianness,
         version :: ELFHeaderVersion,
         osabi :: ELFHeaderABI,
         objectType :: ELFHeaderType,
@@ -141,11 +141,11 @@ data ELFInfo = ELFInfo {
         elfSectionHeaders :: [ELFSectionHeader]
     } deriving (Show)
 
-data ParseElfState = ParseElfState {
+data ParseState = ParseState {
         elfOffset :: Int,
         elfString :: B.ByteString,
-        elfEndianness :: Endianness,
-        elfSize :: AddressSize,
+        elfEndianness :: F.Endianness,
+        elfSize :: F.AddressSize,
         elfOffsetState :: [Int]
     }
 
@@ -244,7 +244,7 @@ instance Show ELFSectionHeaderType where
 
 instance Show ELFHeader where
     show ELFHeader { magic=m, format=c, fileEndianness=e, version=v, osabi=abi, objectType=t, machine=arch, entry=ent, phoff=ph, shoff=sh, flags=f, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi} =
-        printf "Magic: %s\nClass: %s\nEndianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X\nHeader Size: %d\nProgram Header Size: %d\nProgram Header Entry Number: %d\nSection Header Size: %d\nSection Header Entry Number: %d\nIndex Section Name: %d"
+        printf "Magic: %s\nClass: %s\nF.Endianness: %s\nVersion: %s\nOSABI: %s\nType: %s\nMachine: %s\nEntry point: %s\nPhoff: %s\nShoff: %s\nFlags: 0x%08X\nHeader Size: %d\nProgram Header Size: %d\nProgram Header Entry Number: %d\nSection Header Size: %d\nSection Header Entry Number: %d\nIndex Section Name: %d"
             (show m)
             (show c)
             (show e)
@@ -293,130 +293,150 @@ instance Show ELFHeaderABI where
     show (ELFHeaderABI abi) = printf "ABI(0x%02X)" abi
 
 
-instance ParseStateAccess ParseElfState where
+instance F.ParseStateAccess ParseState where
     offset = elfOffset
     string = elfString
     endianness = elfEndianness
     putOffset a off = a { elfOffset = off }
-    pushOffset a@ParseElfState {elfOffsetState=x} off = a { elfOffset=off, elfOffsetState=(elfOffset a):x}
-    popOffset a@ParseElfState {elfOffsetState=x:xs} = a {elfOffset=x, elfOffsetState=xs} 
+    pushOffset a@ParseState {elfOffsetState=x} off = a { elfOffset=off, elfOffsetState=(elfOffset a):x}
+    popOffset a@ParseState {elfOffsetState=x:xs} = a {elfOffset=x, elfOffsetState=xs} 
     
 
 {- ELf specific routine -}
-parseELFHeaderClass :: Parse ParseElfState AddressSize
-parseELFHeaderClass = parseByte ==> \b ->
-        case b of
-            1 -> getState ==> \state -> 
-                 putState state {elfSize = S32} ==>& identity S32
-            2 -> getState ==> \state ->
-                 putState state {elfSize = S64} ==>& identity S64
-            _ -> bail $ printf "Unknown class (0x02X)" b
+parseHeaderClass :: F.Parse ParseState F.AddressSize
+parseHeaderClass = do
+    b <- F.parseByte
+    case b of
+        1 -> do
+            state <- F.getState
+            F.putState state {elfSize = F.S32}
+            return F.S32
+        2 -> do 
+            state <- F.getState
+            F.putState state {elfSize = F.S64}
+            return F.S64
+        _ -> F.bail $ printf "Unknown class (0x02X)" b
 
-parseELFHeaderMagic :: Parse ParseElfState ELFHeaderMagic
-parseELFHeaderMagic = parseByte ==> \magicByte ->
-        assert (magicByte == 0x7F) "First magic byte is wrong" ==>&
-        parseIdentifier ==> \ident ->
-            assert (ident == "ELF") (printf "Magic string is not ELF %s" ident) ==>&
-            identity (ELFHeaderMagic magicByte ident)
+parseHeaderMagic :: F.Parse ParseState ELFHeaderMagic
+parseHeaderMagic = do 
+    magicByte <- F.parseByte
+    F.assert (magicByte == 0x7F) "First magic byte is wrong"
+    ident <- F.parseIdentifier
+    F.assert (ident == "ELF") (printf "Magic string is not ELF %s" ident)
+    return (ELFHeaderMagic magicByte ident)
 
-parseELFHeaderEndianness :: Parse ParseElfState Endianness
-parseELFHeaderEndianness = parseByte ==> \b ->
-            case b of
-                1 -> getState ==> \state ->
-                     putState state {elfEndianness = LittleEndian } ==>& identity LittleEndian
-                0 -> getState ==> \state ->
-                     putState state {elfEndianness = BigEndian} ==>& identity BigEndian
-                _ -> bail $ printf "Bad endianness (0x%02X)" b
+parseHeaderEndianness :: F.Parse ParseState F.Endianness
+parseHeaderEndianness = do
+    b <- F.parseByte
+    case b of
+        1 -> do
+            state <- F.getState
+            F.putState state {elfEndianness = F.LittleEndian }
+            return F.LittleEndian
+        0 -> do
+            state <- F.getState 
+            F.putState state {elfEndianness = F.BigEndian}
+            return F.BigEndian
+        _ -> F.bail $ printf "Bad endianness (0x%02X)" b
 
-parseELFHeaderType :: Parse ParseElfState ELFHeaderType
-parseELFHeaderType = parseHalf ==> \b ->
-        case b of
-            1 -> identity ELFRelocatable
-            2 -> identity ELFExecutable
-            3 -> identity ELFShared
-            4 -> identity ELFCore
-            _ -> bail $ printf "Bad elf type (0x%02X)" b
+parseHeaderType :: F.Parse ParseState ELFHeaderType
+parseHeaderType = do
+    b <- F.parseHalf
+    case b of
+        1 -> return ELFRelocatable
+        2 -> return ELFExecutable
+        3 -> return ELFShared
+        4 -> return ELFCore
+        _ -> F.bail $ printf "Bad elf type (0x%02X)" b
 
-parseELFHeaderMachine :: Parse ParseElfState ELFHeaderMachine
-parseELFHeaderMachine = parseHalf ==> \b ->
-        case b of
-            0x02 -> identity ELFSPARC
-            0x03 -> identity ELFx86
-            0x08 -> identity ELFMIPS
-            0x14 -> identity ELFPowerPC
-            0x28 -> identity ELFARM
-            0x2A -> identity ELFSuperH
-            0x32 -> identity ELFIA64
-            0x3E -> identity ELFx86_64
-            0xB7 -> identity ELFAArch64
-            _ -> bail $ printf "Unknown machine (0x%02X)" b
+parseHeaderMachine :: F.Parse ParseState ELFHeaderMachine
+parseHeaderMachine = do
+    b <- F.parseHalf
+    case b of
+        0x02 -> return ELFSPARC
+        0x03 -> return ELFx86
+        0x08 -> return ELFMIPS
+        0x14 -> return ELFPowerPC
+        0x28 -> return ELFARM
+        0x2A -> return ELFSuperH
+        0x32 -> return ELFIA64
+        0x3E -> return ELFx86_64
+        0xB7 -> return ELFAArch64
+        _ -> F.bail $ printf "Unknown machine (0x%02X)" b
 
-parseELFHeaderVersion :: Parse ParseElfState ELFHeaderVersion
-parseELFHeaderVersion = parseByte ==> \b ->
-        case b of
-            1 -> identity ELFDefaultVersion
-            _ -> identity ELFOtherVersion
+parseHeaderVersion :: F.Parse ParseState ELFHeaderVersion
+parseHeaderVersion = do 
+    b <- F.parseByte
+    case b of
+        1 -> return ELFDefaultVersion
+        _ -> return ELFOtherVersion
 
-parseELFHeaderABI :: Parse ParseElfState ELFHeaderABI
-parseELFHeaderABI = parseByte ==> \b ->
-        identity (ELFHeaderABI b)
+parseHeaderABI :: F.Parse ParseState ELFHeaderABI
+parseHeaderABI = do
+    b <- F.parseByte
+    return (ELFHeaderABI b)
 
-parseELFAddress :: Parse ParseElfState Address
-parseELFAddress = getState ==> \state ->
+parseAddress :: F.Parse ParseState Address
+parseAddress = do
+    state <- F.getState
     case elfSize state of
-        S32 -> parseWord ==> \w -> identity $ Address (Left w)
-        S64 -> parseGWord ==> \w -> identity $ Address (Right w)
+        F.S32 -> do
+            w <- F.parseWord
+            return $ Address (Left w)
+        F.S64 -> do
+            w <- F.parseGWord
+            return $ Address (Right w)
 {-|
     This funcition parse the ELF header extracting all the usefull information
  -}
-parseELFHeader :: Parse ParseElfState ELFHeader
-parseELFHeader = do
-        m <- parseELFHeaderMagic
-        f <- parseELFHeaderClass
-        endian <- parseELFHeaderEndianness
-        v <- parseELFHeaderVersion
-        abi <- parseELFHeaderABI
-        skip 8
-        t <- parseELFHeaderType
-        arch <- parseELFHeaderMachine
-        skip 4
-        e <- parseELFAddress
-        ph <- parseELFAddress
-        sh <- parseELFAddress
-        flgs <- parseWord
-        hs <- parseHalf
-        phes <- parseHalf
-        phn <- parseHalf
-        shes <- parseHalf
-        shn <- parseHalf
-        shsi <- parseHalf
+parseHeader :: F.Parse ParseState ELFHeader
+parseHeader = do
+        m <- parseHeaderMagic
+        f <- parseHeaderClass
+        endian <- parseHeaderEndianness
+        v <- parseHeaderVersion
+        abi <- parseHeaderABI
+        F.skip 8
+        t <- parseHeaderType
+        arch <- parseHeaderMachine
+        F.skip 4
+        e <- parseAddress
+        ph <- parseAddress
+        sh <- parseAddress
+        flgs <- F.parseWord
+        hs <- F.parseHalf
+        phes <- F.parseHalf
+        phn <- F.parseHalf
+        shes <- F.parseHalf
+        shn <- F.parseHalf
+        shsi <- F.parseHalf
         return ELFHeader {magic=m, format=f, fileEndianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
 
-parseELFOffset :: Parse ParseElfState Offset
-parseELFOffset = do
-    state <- getState
+parseOffset :: F.Parse ParseState Offset
+parseOffset = do
+    state <- F.getState
     case elfSize state of 
-        S32 -> do 
-            w <- parseWord
+        F.S32 -> do 
+            w <- F.parseWord
             return $ Offset (Left w)
-        S64 -> do
-            w <- parseGWord
+        F.S64 -> do
+            w <- F.parseGWord
             return $ Offset (Right w) 
 
-parseELFMachineInt :: Parse ParseElfState MachineInt
-parseELFMachineInt = do
-    state <- getState
+parseMachineInt :: F.Parse ParseState MachineInt
+parseMachineInt = do
+    state <- F.getState
     case elfSize state of 
-        S32 -> do 
-            w <- parseWord
+        F.S32 -> do 
+            w <- F.parseWord
             return $ MachineInt (Left w)
-        S64 -> do
-            w <- parseGWord
+        F.S64 -> do
+            w <- F.parseGWord
             return $ MachineInt (Right w) 
 
-parseELFProgramHeaderType :: Parse ParseElfState ELFProgramHeaderType
-parseELFProgramHeaderType = do
-    w <- parseWord
+parseProgramHeaderType :: F.Parse ParseState ELFProgramHeaderType
+parseProgramHeaderType = do
+    w <- F.parseWord
     case w of 
         0 -> return ELFPHTNull
         1 -> return ELFPHTLoad
@@ -434,11 +454,11 @@ parseELFProgramHeaderType = do
         0x70000000 -> return ELFPHTLoProc
         0x70000001 -> return ELFPHTArmExUnwind 
         0x7FFFFFFF -> return ELFPHTHiProc
-        _ -> bail $ printf "Unrecognized program header type 0x%08X" w
+        _ -> F.bail $ printf "Unrecognized program header type 0x%08X" w
 
-parseELFSectionHeaderType :: Parse ParseElfState ELFSectionHeaderType
-parseELFSectionHeaderType = do
-    w <- parseWord
+parseSectionHeaderType :: F.Parse ParseState ELFSectionHeaderType
+parseSectionHeaderType = do
+    w <- F.parseWord
     case w of 
         0 -> return ELFSHTNull
         1 -> return ELFSHTProgBits
@@ -468,50 +488,50 @@ parseELFSectionHeaderType = do
         0x7FFFFFFF -> return ELFSHTHiProc
         0x80000000 -> return ELFSHTLoUser
         0x8FFFFFFF -> return ELFSHTHiUser
-        _ -> bail $ printf "Unrecognized section header type 0x%08X" w
+        _ -> F.bail $ printf "Unrecognized section header type 0x%08X" w
 
-parseELFString :: Parse ParseElfState String
-parseELFString = fmap w2c <$> parseWhile (\w -> not $ w == 0)
+parseString :: F.Parse ParseState String
+parseString = fmap F.w2c <$> F.parseWhile (\w -> not $ w == 0)
 
-parseELFProgramHeader :: Parse ParseElfState ELFProgramHeader
-parseELFProgramHeader = do
-    pht <- parseELFProgramHeaderType
-    pho <- parseELFOffset
-    phv <- parseELFAddress
-    php <- parseELFAddress
-    phfs <- parseELFMachineInt
-    phm <- parseELFMachineInt
-    phf <- parseELFMachineInt
-    pha <- parseELFMachineInt
+parseProgramHeader :: F.Parse ParseState ELFProgramHeader
+parseProgramHeader = do
+    pht <- parseProgramHeaderType
+    pho <- parseOffset
+    phv <- parseAddress
+    php <- parseAddress
+    phfs <- parseMachineInt
+    phm <- parseMachineInt
+    phf <- parseMachineInt
+    pha <- parseMachineInt
     return ELFProgramHeader {phtype=pht, phoffset=pho, phvaddr=phv, phpaddr=php, phfilesz=phfs, phmemsz=phm, phflags=phf, phalign=pha}
 
-parseELFSectionHeader :: Parse ParseElfState ELFSectionHeader
-parseELFSectionHeader = do
-    shn <- parseWord
-    sht <- parseELFSectionHeaderType
-    shflgs <- parseELFMachineInt
-    sha <- parseELFAddress
-    sho <-parseELFOffset
-    shs <- parseELFMachineInt
-    shl <- parseWord
-    shi <- parseWord
-    shaa <- parseELFMachineInt
-    shes <- parseELFMachineInt
+parseSectionHeader :: F.Parse ParseState ELFSectionHeader
+parseSectionHeader = do
+    shn <- F.parseWord
+    sht <- parseSectionHeaderType
+    shflgs <- parseMachineInt
+    sha <- parseAddress
+    sho <-parseOffset
+    shs <- parseMachineInt
+    shl <- F.parseWord
+    shi <- F.parseWord
+    shaa <- parseMachineInt
+    shes <- parseMachineInt
     return ELFSectionHeader {shname=ELFSectionName (Right shn), shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes}
 
-parseELFArray :: Parse ParseElfState a -> Int -> Parse ParseElfState [a]
-parseELFArray parser 0 = return []
-parseELFArray parser n
+parseArray :: F.Parse ParseState a -> Int -> F.Parse ParseState [a]
+parseArray parser 0 = return []
+parseArray parser n
     | n > 0 = do 
         h <- parser
-        (h:) <$> (parseELFArray parser (n - 1))
-    | otherwise = bail "Can not parse negative number of array element" 
+        (h:) <$> (parseArray parser (n - 1))
+    | otherwise = F.bail "Can not parse negative number of array element" 
 
-parseELFProgramHeaders :: Int -> Parse ParseElfState [ELFProgramHeader]
-parseELFProgramHeaders = parseELFArray parseELFProgramHeader
+parseProgramHeaders :: Int -> F.Parse ParseState [ELFProgramHeader]
+parseProgramHeaders = parseArray parseProgramHeader
 
-parseELFSectionHeaders :: Int -> Parse ParseElfState [ELFSectionHeader]
-parseELFSectionHeaders = parseELFArray parseELFSectionHeader
+parseSectionHeaders :: Int -> F.Parse ParseState [ELFSectionHeader]
+parseSectionHeaders = parseArray parseSectionHeader
 
 addressToInt :: Address -> Int
 addressToInt (Address (Left i)) = fromIntegral i
@@ -521,54 +541,54 @@ offsetToInt :: Offset -> Int
 offsetToInt (Offset (Left i)) = fromIntegral i
 offsetToInt (Offset (Right i)) = fromIntegral i
 
-getELFSectionName :: ELFSectionHeader -> Parse ParseElfState ELFSectionHeader
-getELFSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
-    pushForwardTo $ fromIntegral d
-    string <- parseELFString
-    popFrom 
+getSectionName :: ELFSectionHeader -> F.Parse ParseState ELFSectionHeader
+getSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
+    F.pushForwardTo $ fromIntegral d
+    string <- parseString
+    F.popFrom 
     return h {shname=ELFSectionName (Left string)} 
 
-getAllELFSectionName :: [ELFSectionHeader] -> Parse ParseElfState [ELFSectionHeader]
-getAllELFSectionName [] = identity []
-getAllELFSectionName (x:xs) = do
-    sname <- getELFSectionName x
-    (sname:) <$> (getAllELFSectionName xs)
+getAllSectionName :: [ELFSectionHeader] -> F.Parse ParseState [ELFSectionHeader]
+getAllSectionName [] = return []
+getAllSectionName (x:xs) = do
+    sname <- getSectionName x
+    (sname:) <$> (getAllSectionName xs)
 
-discoverELFSectionNames :: ELFInfo -> Parse ParseElfState ELFInfo
-discoverELFSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
-    moveTo $ offsetToInt (shoffset (s !! (fromIntegral (shstrndx h))))
-    sWithName <- getAllELFSectionName s
+discoverSectionNames :: ELFInfo -> F.Parse ParseState ELFInfo
+discoverSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
+    F.moveTo $ offsetToInt (shoffset (s !! (fromIntegral (shstrndx h))))
+    sWithName <- getAllSectionName s
     return info {elfSectionHeaders=sWithName}
 
-parseELFStringSection :: ELFSectionHeader -> Parse ParseElfState String
-parseELFStringSection ELFSectionHeader {shoffset=off} = do
-    moveTo $ offsetToInt off
-    parseELFString
+parseStringSection :: ELFSectionHeader -> F.Parse ParseState String
+parseStringSection ELFSectionHeader {shoffset=off} = do
+    F.moveTo $ offsetToInt off
+    parseString
     
-parseELFFile :: Parse ParseElfState ELFInfo
-parseELFFile = do
-    hdr <- parseELFHeader
-    moveTo $ addressToInt (phoff hdr)
-    phs <- parseELFProgramHeaders $ fromIntegral (phnum hdr)
-    moveTo $ addressToInt (shoff hdr)
-    shs <- parseELFSectionHeaders $ fromIntegral (shnum hdr)
-    discoverELFSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
+parseFile :: F.Parse ParseState ELFInfo
+parseFile = do
+    hdr <- parseHeader
+    F.moveTo $ addressToInt (phoff hdr)
+    phs <- parseProgramHeaders $ fromIntegral (phnum hdr)
+    F.moveTo $ addressToInt (shoff hdr)
+    shs <- parseSectionHeaders $ fromIntegral (shnum hdr)
+    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
 
-isComment :: ELFSectionHeader -> Bool
-isComment ELFSectionHeader {shname=ELFSectionName (Left s)}
+isCommentSection :: ELFSectionHeader -> Bool
+isCommentSection ELFSectionHeader {shname=ELFSectionName (Left s)}
     | s == ".comment"   = True
     | otherwise         = False
-isComment ELFSectionHeader {shname=ELFSectionName (Right s)} = False
+isCommentSection ELFSectionHeader {shname=ELFSectionName (Right s)} = False
 
 
-dumpELFComment :: ELFInfo -> Parse ParseElfState String
-dumpELFComment ELFInfo {elfSectionHeaders=shs} = do
-    case find isComment  shs of
-        Just s -> parseELFStringSection s
-        Nothing -> bail "Comment not found"
+dumpComment :: ELFInfo -> F.Parse ParseState String
+dumpComment ELFInfo {elfSectionHeaders=shs} = do
+    case find isCommentSection  shs of
+        Just s -> parseStringSection s
+        Nothing -> F.bail "Comment not found"
 
-parseElf :: Parse ParseElfState a -> B.ByteString -> Either String a 
-parseElf parser string = parse ParseElfState {elfOffset=0, elfSize=S32, elfEndianness=LittleEndian, elfString=string, elfOffsetState=[] } parser string
+parse :: F.Parse ParseState a -> B.ByteString -> Either String a 
+parse parser string = F.parse ParseState {elfOffset=0, elfSize=F.S32, elfEndianness=F.LittleEndian, elfString=string, elfOffsetState=[] } parser string
 
 
 

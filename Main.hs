@@ -1,4 +1,4 @@
-import ElfParser
+import qualified ElfParser as ELF
 import qualified Data.ByteString as B
 import qualified Graphics.UI.Threepenny as UI
 import System.Environment
@@ -9,9 +9,9 @@ import Graphics.UI.Threepenny.Core
 import Control.Monad
 
 getStaticDir :: IO FilePath
-getStaticDir = return "./wwwroot/"
+getStaticDir = return "./"
 
-data Options = GetSectionHeader | GetHeader | GetProgramHeader | GetHelp
+data Options = GetSectionHeader | GetHeader | GetProgramHeader | GetHelp | StartGui
 
 option :: [OptDescr Options]
 option = [ Option ['p'] ["program-headers"] (NoArg GetProgramHeader) "List program headers",
@@ -23,7 +23,8 @@ parseArgs :: IO Options
 parseArgs = do
     argv <- getArgs
     name <- getProgName
-    case parse argv of  
+    case parse argv of 
+        ([], _, _) -> return StartGui 
         ([GetProgramHeader], file, []) -> return GetProgramHeader
         ([GetSectionHeader], file, []) -> return GetSectionHeader
         ([GetHeader], file,  []) -> return GetHeader
@@ -39,57 +40,56 @@ parseArgs = do
 
 main :: IO ()
 main = do
-    static <- getStaticDir
-    startGUI defaultConfig { tpStatic = Just static } setup
+    opt <- parseArgs
+    input <- B.readFile "linker"
+    case opt of
+        StartGui -> do
+            static <- getStaticDir
+            startGUI defaultConfig {tpStatic=Just static} setup
+        _ -> case ELF.parse ELF.parseFile input of
+                Right value ->
+                    case opt of
+                        GetProgramHeader -> putStrLn $ show (ELF.elfProgramHeaders value) 
+                        GetSectionHeader -> putStrLn $ show (ELF.elfSectionHeaders value) 
+                        GetHeader -> putStrLn $ show (ELF.elfHeader value) 
+                Left d -> putStrLn d
 
 setup :: Window -> UI ()
 setup w = do
     return w # set UI.title "ELF Parser"
+    UI.addStyleSheet w "style.css"
     input <- liftIO $ B.readFile "linker"
-    case parseElf parseELFFile input of
+    case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : displayElfHeader (elfHeader value))
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : displayElfHeader (ELF.elfHeader value))
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
             return ()
 
 
-displayElfHeader :: ELFHeader -> [UI Element]
-displayElfHeader ELFHeader { 
-        magic=m, 
-        format=c, 
-        fileEndianness=e, 
-        version=v, 
-        osabi=abi, 
-        objectType=t, 
-        machine=arch, 
-        entry=ent, 
-        phoff=ph, 
-        shoff=sh, 
-        flags=f, 
-        hsize=hs, 
-        phentsize=phes, 
-        phnum=phn, 
-        shentsize=shes, 
-        shnum=shn, 
-        shstrndx=shsi} = do
+displayElfHeader :: ELF.ELFHeader -> [UI Element]
+displayElfHeader ELF.ELFHeader { 
+        ELF.magic=m, 
+        ELF.format=c, 
+        ELF.fileEndianness=e, 
+        ELF.version=v, 
+        ELF.osabi=abi, 
+        ELF.objectType=t, 
+        ELF.machine=arch, 
+        ELF.entry=ent, 
+        ELF.phoff=ph, 
+        ELF.shoff=sh, 
+        ELF.flags=f, 
+        ELF.hsize=hs, 
+        ELF.phentsize=phes, 
+        ELF.phnum=phn, 
+        ELF.shentsize=shes, 
+        ELF.shnum=shn, 
+        ELF.shstrndx=shsi} = do
     [UI.dlist #+ [
         UI.ddef # set UI.text "e_ident",
         UI.dterm # set UI.text (show m),
         UI.li # set UI.text (show m)]]
      
-
-{-main :: IO ()
-main = do
-    opt <- parseArgs
-    input <- B.readFile "linker"
-    case parseElf parseELFFile input of
-        Right value ->
-            case opt of
-                GetProgramHeader -> putStrLn $ show (elfProgramHeaders value) 
-                GetSectionHeader -> putStrLn $ show (elfSectionHeaders value) 
-                GetHeader -> putStrLn $ show (elfHeader value) 
-        Left d -> putStrLn d
--}
  
