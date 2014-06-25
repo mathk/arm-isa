@@ -7,6 +7,7 @@ import System.IO
 import System.Console.GetOpt
 import Graphics.UI.Threepenny.Core
 import Control.Monad
+import Text.Printf
 
 getStaticDir :: IO FilePath
 getStaticDir = return "./"
@@ -89,7 +90,30 @@ displayElfHeader ELF.ELFHeader {
         ELF.shstrndx=shsi} = do
     [UI.dlist #+ [
         UI.ddef # set UI.text "e_ident",
-        UI.dterm # set UI.text (show m),
-        UI.li # set UI.text (show m)]]
+        UI.dterm # set UI.text (printf "%s, %s, %s, %s, %s"  (show m) (show c) (show e) (show v) (show abi)),
+        UI.ddef # set UI.text "e_type",
+        UI.dterm # set UI.text (show t),
+        UI.ddef # set UI.text "e_machine",
+        UI.dterm # set UI.text (show arch),
+        UI.ddef # set UI.text "e_entry",
+        UI.dterm # set UI.text (show ent),
+        UI.ddef # set UI.text "e_phoff",
+        UI.dterm # set UI.text (show ph),
+        UI.ddef # set UI.text "e_shoff",
+        UI.dterm # set UI.text (show sh),
+        UI.ddef # set UI.text "e_flags",
+        UI.dterm # set UI.text (show f),
+        UI.ddef # set UI.text "e_ehsize",
+        UI.dterm # set UI.text (show hs),
+        UI.ddef # set UI.text "e_phentsize",
+        UI.dterm # set UI.text (show phes),
+        UI.ddef # set UI.text "e_phnum",
+        UI.dterm # set UI.text (show phn),
+        UI.ddef # set UI.text "e_shentsize",
+        UI.dterm # set UI.text (show shes),
+        UI.ddef # set UI.text "e_shnum",
+        UI.dterm # set UI.text (show shn),
+        UI.ddef # set UI.text "e_shstrndx",
+        UI.dterm # set UI.text (show shsi)]]
      
  
