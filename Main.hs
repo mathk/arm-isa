@@ -62,7 +62,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : displayElfHeader (ELF.elfHeader value))
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.elfHeader value)) ++ [displayElfCanvas value])
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -87,7 +87,7 @@ displayElfHeader ELF.ELFHeader {
         ELF.phnum=phn, 
         ELF.shentsize=shes, 
         ELF.shnum=shn, 
-        ELF.shstrndx=shsi} = do
+        ELF.shstrndx=shsi} =
     [UI.dlist #+ [
         UI.ddef # set UI.text "e_ident",
         UI.dterm # set UI.text (printf "%s, %s, %s, %s, %s"  (show m) (show c) (show e) (show v) (show abi)),
@@ -115,5 +115,16 @@ displayElfHeader ELF.ELFHeader {
         UI.dterm # set UI.text (show shn),
         UI.ddef # set UI.text "e_shstrndx",
         UI.dterm # set UI.text (show shsi)]]
-     
- 
+
+displayElfCanvas :: ELF.ELFInfo -> UI Element
+displayElfCanvas info = do
+    canvas <- UI.canvas # set UI.height 200 # set UI.width 200 # set style [("border", "solid black 1px")] 
+    UI.strokeStyle "#ccc" canvas
+    UI.strokeRect (10, 10) 100 100 canvas
+    UI.clearRect (9,11) 100 20 canvas
+    UI.beginPath canvas
+    UI.moveTo (50,50) canvas
+    UI.lineTo (80, 80) canvas
+    UI.strokeStyle "#000" canvas
+    UI.stroke canvas
+    element canvas
