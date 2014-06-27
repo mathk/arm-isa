@@ -7,7 +7,18 @@ import System.IO
 import System.Console.GetOpt
 import Graphics.UI.Threepenny.Core
 import Control.Monad
+import qualified Control.Monad.State as S
 import Text.Printf
+
+data CanvasContext a = CanvasContext {
+    canvas :: S.State UI.Canvas a
+}
+
+instance Monad CanvasContext where
+    initCanvas >>= nextTodo = CanvasContext $ canvas initCanvas >>= canvas . nextTodo
+    return = CanvasContext . return
+
+-- withCanvas :: Canvas -> CanvasContext a -> UI a
 
 getStaticDir :: IO FilePath
 getStaticDir = return "./"
@@ -116,9 +127,21 @@ displayElfHeader ELF.ELFHeader {
         UI.ddef # set UI.text "e_shstrndx",
         UI.dterm # set UI.text (show shsi)]]
 
+type UIDraw = UI ()
+
+strokeStyle :: String -> CanvasContext UIDraw
+strokeStyle string = CanvasContext $ do 
+    c <- S.get
+    return $ UI.strokeStyle string c
+    
+
+withCanvas :: CanvasContext a -> UI.Canvas -> a
+withCanvas (CanvasContext m) c = fst $ S.runState m c
+
 displayElfCanvas :: ELF.ELFInfo -> UI Element
 displayElfCanvas info = do
-    canvas <- UI.canvas # set UI.height 200 # set UI.width 200 # set style [("border", "solid black 1px")] 
+    canvas <- UI.canvas # set UI.height 200 # set UI.width 200 # set style [("border", "solid black 1px")]
+    withCanvas (do { strokeStyle "#ccc" }) canvas 
     UI.strokeStyle "#ccc" canvas
     UI.strokeRect (10, 10) 100 100 canvas
     UI.clearRect (9,11) 100 20 canvas
