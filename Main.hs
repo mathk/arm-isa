@@ -7,6 +7,7 @@ import System.IO
 import System.Console.GetOpt
 import Graphics.UI.Threepenny.Core
 import Control.Monad
+import Data.Monoid
 import qualified Control.Monad.State as S
 import Text.Printf
 
@@ -124,9 +125,16 @@ displayElfCanvas info = do
                     set UI.height 150 # 
                     set UI.width 300 # 
                     set style [("border", "solid black 1px")] #
-                    set UI.strokeStyle (UI.SolidColor (UI.RGB 0xF 0 0))
-    UI.beginPath canvas
-    UI.moveTo (50,50) canvas
-    UI.lineTo (80, 80) canvas
-    UI.stroke canvas
+                    set UI.strokeStyle (UI.SolidColor (UI.RGB 0xF 0 0)) #
+                    set UI.lineWidth 4
+    UI.renderDrawing canvas 
+        ((UI.openedPath red 4.0 
+            (UI.line (10.0,10.0) (100.0,100.0) <>
+            (UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
+        (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
+    --UI.beginPath canvas
+    --UI.moveTo (50,50) canvas
+    --UI.lineTo (80, 80) canvas
+    --UI.stroke canvas
     element canvas
+        where red = UI.SolidColor (UI.RGB 0xFF 0 0) 
