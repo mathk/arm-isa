@@ -125,11 +125,11 @@ displayElfCanvas info = do
                     set UI.height 1600 # 
                     set UI.width 300 # 
                     set style [("border", "solid black 1px")]
-    UI.renderDrawing canvas 
-        (UI.openedPath red 0.001
-            ((UI.translate 150.0 1600.0) <>
-            (UI.scale 150.0 (-1600.0)) <>
-            (displayElfHeaderOffset info)) )
+    UI.renderDrawing canvas (displayElfHeaderOffset info)
+        --(UI.openedPath red 0.001
+        --    ((UI.translate 150.0 1600.0) <>
+        --    (UI.scale 150.0 (-1600.0)) <>
+        --    (displayElfHeaderOffset info)) )
         --    (UI.line (-1.0,0.9) (1.0,0.9))))
             --(UI.move (150.0,100.0)) <>
             --(UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
@@ -152,11 +152,11 @@ sectionOffset :: Int -> ELF.ELFSectionHeader -> UI.DrawingPath
 sectionOffset size (ELF.ELFSectionHeader {ELF.shoffset=off}) =
     regionSeparator (ELF.offsetToInt off) size
 
-displayElfHeaderOffset :: ELF.ELFInfo -> UI.DrawingPath
+displayElfHeaderOffset :: ELF.ELFInfo -> UI.Drawing
 displayElfHeaderOffset (ELF.ELFInfo header@(ELF.ELFHeader {ELF.phoff=pho,ELF.shoff=sho}) ph sh size) = 
-    regionSeparator 0 size <>
-    regionSeparator (ELF.addressToInt pho) size <>
-    regionSeparator (ELF.addressToInt sho) size <>
-    (mconcat (fmap (programSectionOffset size) ph )) <>
-    (mconcat (fmap (sectionOffset size) sh ))
+    (UI.openedPath green 0.00. (regionSeparator 0 size)) <>
+    (UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt pho) size)) <>
+    (UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt sho) size) <>
+    (UI.openedPath blue 0.001 (mconcat (fmap (programSectionOffset size) ph ))) <>
+    (UI.openedPath yellow 0.001 (mconcat (fmap (sectionOffset size) sh )))
     
