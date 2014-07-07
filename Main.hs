@@ -122,14 +122,41 @@ displayElfHeader ELF.ELFHeader {
 displayElfCanvas :: ELF.ELFInfo -> UI Element
 displayElfCanvas info = do
     canvas <- UI.canvas #
-                    set UI.height 800 # 
+                    set UI.height 1600 # 
                     set UI.width 300 # 
                     set style [("border", "solid black 1px")]
     UI.renderDrawing canvas 
-        ((UI.openedPath red 4.0 
-            (UI.line (10.0,10.0) (100.0,100.0) <>
-            (UI.move (150.0,100.0)) <>
-            (UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
-        (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
+        (UI.openedPath red 0.001
+            ((UI.translate 150.0 1600.0) <>
+            (UI.scale 150.0 (-1600.0)) <>
+            (displayElfHeaderOffset info)) )
+        --    (UI.line (-1.0,0.9) (1.0,0.9))))
+            --(UI.move (150.0,100.0)) <>
+            --(UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
+        -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
-        where red = UI.solidColor (UI.RGB 0xFF 0 0) 
+        where red = UI.solidColor (UI.rgbColor 0xFF 0 0)
+
+normalizeY :: Int -> Int -> Double
+normalizeY value max = 1.0 - ((fromIntegral value) / (fromIntegral max)) 
+
+regionSeparator :: Int -> Int -> UI.DrawingPath
+regionSeparator offset size = UI.line (-1.0,offsetCoord) (1.0,offsetCoord)
+    where offsetCoord = (normalizeY offset size)
+
+programSectionOffset :: Int -> ELF.ELFProgramHeader -> UI.DrawingPath
+programSectionOffset size (ELF.ELFProgramHeader {ELF.phoffset=off}) =
+    regionSeparator (ELF.offsetToInt off) size
+
+sectionOffset :: Int -> ELF.ELFSectionHeader -> UI.DrawingPath
+sectionOffset size (ELF.ELFSectionHeader {ELF.shoffset=off}) =
+    regionSeparator (ELF.offsetToInt off) size
+
+displayElfHeaderOffset :: ELF.ELFInfo -> UI.DrawingPath
+displayElfHeaderOffset (ELF.ELFInfo header@(ELF.ELFHeader {ELF.phoff=pho,ELF.shoff=sho}) ph sh size) = 
+    regionSeparator 0 size <>
+    regionSeparator (ELF.addressToInt pho) size <>
+    regionSeparator (ELF.addressToInt sho) size <>
+    (mconcat (fmap (programSectionOffset size) ph )) <>
+    (mconcat (fmap (sectionOffset size) sh ))
+    

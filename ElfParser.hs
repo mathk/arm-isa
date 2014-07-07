@@ -9,8 +9,12 @@ module ElfParser
     (
       ELFInfo(..),
       ELFHeader(..),
+      ELFProgramHeader(..),
+      ELFSectionHeader(..),
       parseHeader,
       parseFile,
+      addressToInt,
+      offsetToInt,
       parse
     ) where
 
@@ -138,7 +142,8 @@ data ELFSectionHeader = ELFSectionHeader {
 data ELFInfo = ELFInfo {
         elfHeader :: ELFHeader,
         elfProgramHeaders :: [ELFProgramHeader],
-        elfSectionHeaders :: [ELFSectionHeader]
+        elfSectionHeaders :: [ELFSectionHeader],
+        elfFileSize :: Int
     } deriving (Show)
 
 data ParseState = ParseState {
@@ -573,7 +578,8 @@ parseFile = do
     phs <- parseProgramHeaders $ fromIntegral (phnum hdr)
     F.moveTo $ addressToInt (shoff hdr)
     shs <- parseSectionHeaders $ fromIntegral (shnum hdr)
-    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs}
+    state <- F.getState
+    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(B.length (F.string state))}
 
 isCommentSection :: ELFSectionHeader -> Bool
 isCommentSection ELFSectionHeader {shname=ELFSectionName (Left s)}
