@@ -123,9 +123,12 @@ displayElfCanvas :: ELF.ELFInfo -> UI Element
 displayElfCanvas info = do
     canvas <- UI.canvas #
                     set UI.height 1600 # 
-                    set UI.width 300 # 
+                    set UI.width 600 # 
                     set style [("border", "solid black 1px")]
-    UI.renderDrawing canvas (displayElfHeaderOffset info)
+    UI.renderDrawing canvas (
+        --(UI.translate 300.0 1600.0) <> 
+        --(UI.scale 300.0 (-1600.0)) <> 
+        (displayElfHeaderOffset info))
         --(UI.openedPath red 0.001
         --    ((UI.translate 150.0 1600.0) <>
         --    (UI.scale 150.0 (-1600.0)) <>
@@ -135,28 +138,38 @@ displayElfCanvas info = do
             --(UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
-        where red = UI.solidColor (UI.rgbColor 0xFF 0 0)
 
 normalizeY :: Int -> Int -> Double
-normalizeY value max = 1.0 - ((fromIntegral value) / (fromIntegral max)) 
+normalizeY value max= (((fromIntegral value) * 1600.0) / (fromIntegral max)) 
 
 regionSeparator :: Int -> Int -> UI.DrawingPath
-regionSeparator offset size = UI.line (-1.0,offsetCoord) (1.0,offsetCoord)
-    where offsetCoord = (normalizeY offset size)
+regionSeparator offset size = UI.line (0.0,offsetCoord) (300.0,offsetCoord)
+    where offsetCoord = normalizeY offset size
 
-programSectionOffset :: Int -> ELF.ELFProgramHeader -> UI.DrawingPath
+programSectionOffset :: Int -> ELF.ELFProgramHeader -> UI.Drawing
 programSectionOffset size (ELF.ELFProgramHeader {ELF.phoffset=off}) =
-    regionSeparator (ELF.offsetToInt off) size
+    (UI.openedPath red 2.0 (regionSeparator (ELF.offsetToInt off) size))
+        where red = UI.solidColor $ UI.rgbColor 0xFF 0 0
 
-sectionOffset :: Int -> ELF.ELFSectionHeader -> UI.DrawingPath
-sectionOffset size (ELF.ELFSectionHeader {ELF.shoffset=off}) =
-    regionSeparator (ELF.offsetToInt off) size
+sectionOffset :: Int -> ELF.ELFSectionHeader -> UI.Drawing
+sectionOffset size (ELF.ELFSectionHeader {ELF.shoffset=off, ELF.shname=sectionName}) =
+    (UI.openedPath blue 2.0 (regionSeparator (ELF.offsetToInt off) size)) <>
+    (UI.setDraw UI.textFont "bold 16px sans-serif") <>
+    (UI.setDraw UI.strokeStyle  black) <>
+    (UI.strokeText (show sectionName) (300.0, (normalizeY (ELF.offsetToInt off) size)))
+        where 
+            blue = UI.solidColor $ UI.rgbColor 0x50 0x50 0xFF
+            black = UI.solidColor $ UI.rgbColor 0 0 0
 
 displayElfHeaderOffset :: ELF.ELFInfo -> UI.Drawing
 displayElfHeaderOffset (ELF.ELFInfo header@(ELF.ELFHeader {ELF.phoff=pho,ELF.shoff=sho}) ph sh size) = 
-    (UI.openedPath green 0.00. (regionSeparator 0 size)) <>
-    (UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt pho) size)) <>
-    (UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt sho) size) <>
-    (UI.openedPath blue 0.001 (mconcat (fmap (programSectionOffset size) ph ))) <>
-    (UI.openedPath yellow 0.001 (mconcat (fmap (sectionOffset size) sh )))
+    --(UI.openedPath green 0.001 (regionSeparator 0 size)) <>
+    --(UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt pho) size)) <>
+    --(UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt sho) size)) <>
+    (mconcat (fmap (sectionOffset size) sh )) <>
+    (mconcat (fmap (programSectionOffset size) ph ))
+        where
+            green = UI.solidColor $ UI.rgbColor 0x20 0xFF 0
+            red = UI.solidColor $ UI.rgbColor 0xFF 0 0
+ 
     
