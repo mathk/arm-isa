@@ -163,26 +163,81 @@ sectionOffset size (ELF.ELFSectionHeader {ELF.shoffset=off, ELF.shname=sectionNa
             black = UI.solidColor $ UI.rgbColor 0 0 0
 
 initialOffsetMap :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double
-initialOffsetMap [] = Map.empty
-initialOffsetMap ((ELF.ELFSectionHeader {ELF.shoffset=off}):xs) maxOffset = Map.insert (normalizeY (ELF.offsetToInt off) maxOffset) (initialOffsetMap xs maxOffset)
+initialOffsetMap [] _ = Map.empty
+initialOffsetMap ((ELF.ELFSectionHeader {ELF.shoffset=off}):xs) maxOffset = Map.insert initialPostion initialPostion (initialOffsetMap xs maxOffset)
+    where
+        initialPostion = (normalizeY (ELF.offsetToInt off) maxOffset) 
 
 
-simblingIndex :: Map.Map Double Double -> Int -> [Int]
-simblingIndex mapOffset 0 = [1]
-simblingIndex mapOffset idx
-    | index + 1 < Map.size mapOffset = [index-1, index+1]
-    | index + 1 == Map.size mapOffset = [index-1]
-    
+sign :: Double -> Double
+sign a | a >= 0.0 = 1.0
+       | a < 0.0 = -1.0
 
-simbling :: Map.Map Double Double -> Double -> [(Double,Double)]
-simbling mapOffset key = Map.findIndex key mapOffset
+repulseForce :: Double -> Double -> Double
+repulseForce origin distant = 30.0 / (max  1 (abs d)) *  sign d
+    where d = origin - distant
 
-forceBaseStep :: Map.Map Double Double -> Map.Map Double Double
-forceBaseStep map = 
+simbling :: Map.Map Double Double -> Double -> Map.Map Double Double
+simbling mapOffset key = Map.filterWithKey checkRange mapOffset
+    where checkRange filterKey value = and [ key /= filterKey, (abs $ (mapOffset Map.! key) - value) < 100.0 ]
+
+forceAt :: Map.Map Double Double -> Double -> Double
+forceAt mapOffset key = (Map.foldl sumingForce 0.0 (simbling mapOffset key)) + ((key - (mapOffset Map.! key)) / 4.0)
+    where sumingForce acc value =  (repulseForce  (mapOffset Map.! key) value ) + acc
+
+constrainForceAt :: Map.Map Double Double -> Int -> Double -> Double
+constrainForceAt mapOffset max key
+    | left <= force && force <= right   = force 
+    | force < left                      = left + 0.1
+    | otherwise                         = right - 0.1 
+    where (left,right) = neighbour key mapOffset max
+          force = forceAt mapOffset key
+
+neighbour :: Double -> Map.Map Double Double -> Int -> (Double,Double)
+neighbour key mapOffset max
+    | mapSize == 1                  = (0.0                      , valueAt 0)
+    | keyIndex == 0 && mapSize > 1  = (0.0                      , valueAt 1)
+    | keyIndex == mapSize - 1       = (valueAt $ mapSize - 1    , (normalizeY max max))
+    | otherwise                     = (valueAt $ keyIndex - 1   , min (normalizeY max max) (valueAt $ keyIndex + 1))
+    where keyIndex = Map.findIndex key mapOffset
+          mapSize = Map.size mapOffset
+          valueAt index = snd $ Map.elemAt index mapOffset
+
+forceBaseStep :: Map.Map Double Double -> Int -> Map.Map Double Double
+forceBaseStep map max = Map.mapWithKey tranform map
+    where tranform key value = (constrainForceAt map max key) + value 
+
+forceBaseLayout :: Map.Map Double Double -> Int -> Int -> Map.Map Double Double
+forceBaseLayout mapOffset _ 0 = mapOffset
+forceBaseLayout mapOffset max n = forceBaseLayout (forceBaseStep mapOffset max) max (n - 1)
+
+layoutSectionName :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double
+layoutSectionName headers max = forceBaseLayout (initialOffsetMap headers max) max 70 
+
+drawSectionHeader :: ELF.ELFSectionHeader -> Int -> Map.Map Double Double -> UI.Drawing
+drawSectionHeader (ELF.ELFSectionHeader {ELF.shname=sectionName,ELF.shoffset=off}) size layoutMap = 
+    (UI.openedPath blue 2.0 (UI.line (0.0,position) (300.0,position))) <>
+    (UI.setDraw UI.textFont "bold 16px sans-serif") <>
+    (UI.setDraw UI.strokeStyle  black) <>
+    (UI.openedPath blue 2.0 (UI.line (300.0,position) (380.0,textPosition))) <>
+    (UI.fillText (show sectionName) (380.0,textPosition))
+        where 
+            position = normalizeY (ELF.offsetToInt off) size
+            textPosition = layoutMap Map.! position
+            blue = UI.solidColor $ UI.rgbColor 0x50 0x50 0xFF
+            black = UI.solidColor $ UI.rgbColor 0 0 0
+
+drawSectionHeaders :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double -> UI.Drawing
+drawSectionHeaders [] _ _ = mempty
+drawSectionHeaders (h:xs) size layoutMap = (drawSectionHeader h size layoutMap) <> (drawSectionHeaders xs size layoutMap) 
+
+layoutAndDrawSectionHeaders :: [ELF.ELFSectionHeader] -> Int -> UI.Drawing
+layoutAndDrawSectionHeaders headers maxSize = drawSectionHeaders headers maxSize (layoutSectionName headers maxSize)
 
 displayElfHeaderOffset :: ELF.ELFInfo -> UI.Drawing
 displayElfHeaderOffset (ELF.ELFInfo header@(ELF.ELFHeader {ELF.phoff=pho,ELF.shoff=sho}) ph sh size) = 
-    (mconcat (fmap (sectionOffset size) sh )) <>
+    --(mconcat (fmap (sectionOffset size) sh )) <>
+    (layoutAndDrawSectionHeaders sh size) <>
     (mconcat (fmap (programSectionOffset size) ph ))
         where
             green = UI.solidColor $ UI.rgbColor 0x20 0xFF 0
