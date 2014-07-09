@@ -9,6 +9,7 @@ import Graphics.UI.Threepenny.Core
 import Control.Monad
 import Data.Monoid
 import qualified Control.Monad.State as S
+import qualified Data.Map as Map
 import Text.Printf
 
 getStaticDir :: IO FilePath
@@ -156,16 +157,31 @@ sectionOffset size (ELF.ELFSectionHeader {ELF.shoffset=off, ELF.shname=sectionNa
     (UI.openedPath blue 2.0 (regionSeparator (ELF.offsetToInt off) size)) <>
     (UI.setDraw UI.textFont "bold 16px sans-serif") <>
     (UI.setDraw UI.strokeStyle  black) <>
-    (UI.strokeText (show sectionName) (300.0, (normalizeY (ELF.offsetToInt off) size)))
+    (UI.fillText (show sectionName) (300.0, (normalizeY (ELF.offsetToInt off) size)))
         where 
             blue = UI.solidColor $ UI.rgbColor 0x50 0x50 0xFF
             black = UI.solidColor $ UI.rgbColor 0 0 0
 
+initialOffsetMap :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double
+initialOffsetMap [] = Map.empty
+initialOffsetMap ((ELF.ELFSectionHeader {ELF.shoffset=off}):xs) maxOffset = Map.insert (normalizeY (ELF.offsetToInt off) maxOffset) (initialOffsetMap xs maxOffset)
+
+
+simblingIndex :: Map.Map Double Double -> Int -> [Int]
+simblingIndex mapOffset 0 = [1]
+simblingIndex mapOffset idx
+    | index + 1 < Map.size mapOffset = [index-1, index+1]
+    | index + 1 == Map.size mapOffset = [index-1]
+    
+
+simbling :: Map.Map Double Double -> Double -> [(Double,Double)]
+simbling mapOffset key = Map.findIndex key mapOffset
+
+forceBaseStep :: Map.Map Double Double -> Map.Map Double Double
+forceBaseStep map = 
+
 displayElfHeaderOffset :: ELF.ELFInfo -> UI.Drawing
 displayElfHeaderOffset (ELF.ELFInfo header@(ELF.ELFHeader {ELF.phoff=pho,ELF.shoff=sho}) ph sh size) = 
-    --(UI.openedPath green 0.001 (regionSeparator 0 size)) <>
-    --(UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt pho) size)) <>
-    --(UI.openedPath red 0.001 (regionSeparator (ELF.addressToInt sho) size)) <>
     (mconcat (fmap (sectionOffset size) sh )) <>
     (mconcat (fmap (programSectionOffset size) ph ))
         where
