@@ -175,8 +175,9 @@ sign a | a >= 0.0 = 1.0
 
 repulseForce :: Double -> Double -> Double -> Double
 repulseForce origin distant preferedSign
-    | abs d < 0.01 = (30.0 / 0.01) * preferedSign
-    | otherwise = 30.0 / d
+    | abs d > 100.0 = 0
+    | d < 0 = (-(100.0 + d)) / 15.0
+    | otherwise = (100.0 - d) / 15.0
     where d = origin - distant
           
 
@@ -185,17 +186,17 @@ simbling mapOffset key = Map.filterWithKey checkRange mapOffset
     where checkRange filterKey value = and [ key /= filterKey, (abs $ (mapOffset Map.! key) - value) < 100.0 ]
 
 forceAt :: Map.Map Double Double -> Double -> Double
-forceAt mapOffset key = (Map.foldl sumingForce 0.0 (simbling mapOffset key)) + ((key - origin) / 6.0)
+forceAt mapOffset key = (Map.foldl sumingForce 0.0 (simbling mapOffset key)) + ((key - origin) / 10.0)
     where origin = (mapOffset Map.! key)
           preferedSign = sign (key - origin)
           sumingForce acc value =  (repulseForce origin value preferedSign ) + acc
 
 constrainForceAt :: Map.Map Double Double -> Int -> Double -> Double
-constrainForceAt mapOffset max key
-    | left <= newValue && newValue <= right = force 
-    | newValue < left                       = 0.0
-    | otherwise                             = 0.0
-    where (left,right) = neighbour key mapOffset max
+constrainForceAt mapOffset maxValue key
+    | left < newValue && newValue < right = force 
+    | newValue < left                       = min 0.0 (left +  0.000001 - oldValue)
+    | otherwise                             = max 0.0 (right - 0.000001 - oldValue) 
+    where (left,right) = neighbour key mapOffset maxValue
           force = forceAt mapOffset key
           oldValue = (mapOffset Map.! key) 
           newValue = oldValue + force
@@ -211,15 +212,15 @@ neighbour key mapOffset max
           valueAt index = snd $ Map.elemAt index mapOffset
 
 forceBaseStep :: Map.Map Double Double -> Int -> Map.Map Double Double
-forceBaseStep map max = Map.mapWithKey tranform map
-    where tranform key value = (constrainForceAt map max key) + value 
+forceBaseStep map max = foldl tranform map (Map.keys map)
+    where tranform currentMap key = Map.update (Just . ((constrainForceAt currentMap max key)+)) key currentMap 
 
 forceBaseLayout :: Map.Map Double Double -> Int -> Int -> Map.Map Double Double
 forceBaseLayout mapOffset _ 0 = mapOffset
 forceBaseLayout mapOffset max n = forceBaseLayout (forceBaseStep mapOffset max) max (n - 1)
 
 layoutSectionName :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double
-layoutSectionName headers max = forceBaseLayout (initialOffsetMap headers max) max 250 
+layoutSectionName headers max = forceBaseLayout (initialOffsetMap headers max) max 350 
 
 drawSectionHeader :: ELF.ELFSectionHeader -> Int -> Map.Map Double Double -> UI.Drawing
 drawSectionHeader (ELF.ELFSectionHeader {ELF.shname=sectionName,ELF.shoffset=off}) size layoutMap = 
