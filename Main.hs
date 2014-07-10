@@ -173,32 +173,39 @@ sign :: Double -> Double
 sign a | a >= 0.0 = 1.0
        | a < 0.0 = -1.0
 
-repulseForce :: Double -> Double -> Double
-repulseForce origin distant = 30.0 / (max  1 (abs d)) *  sign d
+repulseForce :: Double -> Double -> Double -> Double
+repulseForce origin distant preferedSign
+    | abs d < 0.01 = (30.0 / 0.01) * preferedSign
+    | otherwise = 30.0 / d
     where d = origin - distant
+          
 
 simbling :: Map.Map Double Double -> Double -> Map.Map Double Double
 simbling mapOffset key = Map.filterWithKey checkRange mapOffset
     where checkRange filterKey value = and [ key /= filterKey, (abs $ (mapOffset Map.! key) - value) < 100.0 ]
 
 forceAt :: Map.Map Double Double -> Double -> Double
-forceAt mapOffset key = (Map.foldl sumingForce 0.0 (simbling mapOffset key)) + ((key - (mapOffset Map.! key)) / 4.0)
-    where sumingForce acc value =  (repulseForce  (mapOffset Map.! key) value ) + acc
+forceAt mapOffset key = (Map.foldl sumingForce 0.0 (simbling mapOffset key)) + ((key - origin) / 6.0)
+    where origin = (mapOffset Map.! key)
+          preferedSign = sign (key - origin)
+          sumingForce acc value =  (repulseForce origin value preferedSign ) + acc
 
 constrainForceAt :: Map.Map Double Double -> Int -> Double -> Double
 constrainForceAt mapOffset max key
-    | left <= force && force <= right   = force 
-    | force < left                      = left + 0.1
-    | otherwise                         = right - 0.1 
+    | left <= newValue && newValue <= right = force 
+    | newValue < left                       = 0.0
+    | otherwise                             = 0.0
     where (left,right) = neighbour key mapOffset max
           force = forceAt mapOffset key
+          oldValue = (mapOffset Map.! key) 
+          newValue = oldValue + force
 
 neighbour :: Double -> Map.Map Double Double -> Int -> (Double,Double)
 neighbour key mapOffset max
     | mapSize == 1                  = (0.0                      , valueAt 0)
     | keyIndex == 0 && mapSize > 1  = (0.0                      , valueAt 1)
     | keyIndex == mapSize - 1       = (valueAt $ mapSize - 1    , (normalizeY max max))
-    | otherwise                     = (valueAt $ keyIndex - 1   , min (normalizeY max max) (valueAt $ keyIndex + 1))
+    | otherwise                     = (valueAt $ keyIndex - 1   , min 1600.0 (valueAt $ keyIndex + 1))
     where keyIndex = Map.findIndex key mapOffset
           mapSize = Map.size mapOffset
           valueAt index = snd $ Map.elemAt index mapOffset
@@ -212,7 +219,7 @@ forceBaseLayout mapOffset _ 0 = mapOffset
 forceBaseLayout mapOffset max n = forceBaseLayout (forceBaseStep mapOffset max) max (n - 1)
 
 layoutSectionName :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double
-layoutSectionName headers max = forceBaseLayout (initialOffsetMap headers max) max 70 
+layoutSectionName headers max = forceBaseLayout (initialOffsetMap headers max) max 250 
 
 drawSectionHeader :: ELF.ELFSectionHeader -> Int -> Map.Map Double Double -> UI.Drawing
 drawSectionHeader (ELF.ELFSectionHeader {ELF.shname=sectionName,ELF.shoffset=off}) size layoutMap = 
