@@ -11,6 +11,7 @@ module ElfParser
       ELFHeader(..),
       ELFProgramHeader(..),
       ELFSectionHeader(..),
+      sectionHeader, programHeaders, sectionName
       parseHeader,
       parseFile,
       addressToInt,
@@ -307,6 +308,30 @@ instance F.ParseStateAccess ParseState where
     pushOffset a@ParseState {elfOffsetState=x} off = a { elfOffset=off, elfOffsetState=(elfOffset a):x}
     popOffset a@ParseState {elfOffsetState=x:xs} = a {elfOffset=x, elfOffsetState=xs} 
     
+
+{-- ELF Manipulation --}
+{-- | Get the size in byte of the pars file --}
+fileSize :: ELFInfo -> Int
+fileSize ELFInfo {elfFileSize=s} = s
+
+{-- | Get the list of header program --}
+programHeaders :: ELFInfo -> [ELFProgramHeader]
+programHeaders ELFInfo{elfProgramHeaders=phs} = phs
+
+-- | Get the specific section header
+-- 
+-- Example usage:
+--
+-- > sectionHeader elfFile ".text" 
+sectionHeader :: ELFInfo -> String -> Maybe ELFSectionHeader
+sectionHeader ELFInfo {elfSectionHeaders=sh} searchName = find matchName sh
+    where matchName ELFSectionHeader {shname=ELFSectionName (Left name)} = name == searchName
+          matchName _ = False
+
+-- | Get the name of a section
+sectionName :: ELFSectionHeader -> String
+sectionName ELFSectionHeader {shname=ELFSectionName (Left name)} = name
+sectionName _ = "Unresolved name"
 
 {- ELf specific routine -}
 parseHeaderClass :: ParseElf F.AddressSize

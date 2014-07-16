@@ -123,11 +123,11 @@ displayElfHeader ELF.ELFHeader {
 displayElfCanvas :: ELF.ELFInfo -> UI Element
 displayElfCanvas info = do
     canvas <- UI.canvas #
-                    set UI.height 1600 # 
+                    set UI.height 1700 # 
                     set UI.width 600 # 
                     set style [("border", "solid black 1px")]
     UI.renderDrawing canvas (
-        --(UI.translate 300.0 1600.0) <> 
+        (UI.translate 0.0 50.0) <> 
         --(UI.scale 300.0 (-1600.0)) <> 
         (displayElfHeaderOffset info))
         --(UI.openedPath red 0.001
@@ -141,7 +141,7 @@ displayElfCanvas info = do
     element canvas
 
 normalizeY :: Int -> Int -> Double
-normalizeY value max= (((fromIntegral value) * 1600.0) / (fromIntegral max)) 
+normalizeY value max= (((fromIntegral value) * 1640.0) / (fromIntegral max)) 
 
 regionSeparator :: Int -> Int -> UI.DrawingPath
 regionSeparator offset size = UI.line (0.0,offsetCoord) (300.0,offsetCoord)
@@ -186,7 +186,7 @@ simbling mapOffset key = Map.filterWithKey checkRange mapOffset
     where checkRange filterKey value = and [ key /= filterKey, (abs $ (mapOffset Map.! key) - value) < 100.0 ]
 
 forceAt :: Map.Map Double Double -> Double -> Double
-forceAt mapOffset key = (Map.foldl sumingForce 0.0 (simbling mapOffset key)) + ((key - origin) / 10.0)
+forceAt mapOffset key = (Map.foldl sumingForce 0.0 (simbling mapOffset key)) + ((key - origin) / 200.0)
     where origin = (mapOffset Map.! key)
           preferedSign = sign (key - origin)
           sumingForce acc value =  (repulseForce origin value preferedSign ) + acc
@@ -206,7 +206,7 @@ neighbour key mapOffset max
     | mapSize == 1                  = (0.0                      , valueAt 0)
     | keyIndex == 0 && mapSize > 1  = (0.0                      , valueAt 1)
     | keyIndex == mapSize - 1       = (valueAt $ mapSize - 1    , (normalizeY max max))
-    | otherwise                     = (valueAt $ keyIndex - 1   , min 1600.0 (valueAt $ keyIndex + 1))
+    | otherwise                     = (valueAt $ keyIndex - 1   , min 1640.0 (valueAt $ keyIndex + 1))
     where keyIndex = Map.findIndex key mapOffset
           mapSize = Map.size mapOffset
           valueAt index = snd $ Map.elemAt index mapOffset
@@ -220,7 +220,7 @@ forceBaseLayout mapOffset _ 0 = mapOffset
 forceBaseLayout mapOffset max n = forceBaseLayout (forceBaseStep mapOffset max) max (n - 1)
 
 layoutSectionName :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double
-layoutSectionName headers max = forceBaseLayout (initialOffsetMap headers max) max 350 
+layoutSectionName headers max = forceBaseLayout (initialOffsetMap headers max) max 450 
 
 drawSectionHeader :: ELF.ELFSectionHeader -> Int -> Map.Map Double Double -> UI.Drawing
 drawSectionHeader (ELF.ELFSectionHeader {ELF.shname=sectionName,ELF.shoffset=off}) size layoutMap = 
@@ -228,7 +228,7 @@ drawSectionHeader (ELF.ELFSectionHeader {ELF.shname=sectionName,ELF.shoffset=off
     (UI.setDraw UI.textFont "bold 16px sans-serif") <>
     (UI.setDraw UI.strokeStyle  black) <>
     (UI.openedPath blue 2.0 (UI.line (300.0,position) (380.0,textPosition))) <>
-    (UI.fillText (show sectionName) (380.0,textPosition))
+    (UI.fillText (printf "%s (%.02g)" (show sectionName) textPosition) (380.0,textPosition))
         where 
             position = normalizeY (ELF.offsetToInt off) size
             textPosition = layoutMap Map.! position
@@ -243,7 +243,7 @@ layoutAndDrawSectionHeaders :: [ELF.ELFSectionHeader] -> Int -> UI.Drawing
 layoutAndDrawSectionHeaders headers maxSize = drawSectionHeaders headers maxSize (layoutSectionName headers maxSize)
 
 displayElfHeaderOffset :: ELF.ELFInfo -> UI.Drawing
-displayElfHeaderOffset (ELF.ELFInfo header@(ELF.ELFHeader {ELF.phoff=pho,ELF.shoff=sho}) ph sh size) = 
+displayElfHeaderOffset (ELF.ELFInfo header ph sh size) = 
     --(mconcat (fmap (sectionOffset size) sh )) <>
     (layoutAndDrawSectionHeaders sh size) <>
     (mconcat (fmap (programSectionOffset size) ph ))
