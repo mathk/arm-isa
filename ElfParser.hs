@@ -11,7 +11,7 @@ module ElfParser
       ELFHeader(..),
       ELFProgramHeader(..),
       ELFSectionHeader(..),
-      sectionHeader, programHeaders, sectionName
+      sectionHeader, programHeaders, sectionName,
       parseHeader,
       parseFile,
       addressToInt,
