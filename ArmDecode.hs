@@ -7,12 +7,17 @@ import Data.Binary.Bits
 
 data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
 
-data ArmInstr = DRI {dri :: DataRegisterInstr }
+data ArmInstr = ArmInstr {cond :: Cond, op :: ArmInstrOp} | NotParsed
+data ArmInstrOp = DRI {dri :: DataRegisterInstr }
+data ArmInstrClass = DataProcessing | LoadStore | Branch | Coprocessor
 
-data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondVC | CondHI | CondLS | CondGE | CondLT | CondGT | CondLE | CondAL
+data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondVC | CondHI | CondLS | CondGE | CondLT | CondGT | CondLE | CondAL | Uncond
 
-data DataRegisterInstr = DRInstr { cond :: Cond, op :: Int, op2, imm5 :: Int, instr :: Int, rn :: ArmRegister, rd :: ArmRegister}
+data DataRegisterInstr = DRInstr { opcode :: DataInstrOp, rn :: ArmRegister, rd :: ArmRegister}
+data DataInstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Cmp | Cmn | Orr | Mov | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn
+data DataInstrOp  = DataInstrOp DataInstrClass SystemLevel
 
+data SystemLevel = SystemInst | NormalInst
 
 parseRegister :: Bin.BitGet ArmRegister
 parseRegister = do 
@@ -54,11 +59,51 @@ parseCond = do
         12 -> return CondGT
         13 -> return CondLE
         14 -> return CondAL
+        15 -> return Uncond
+
+parseInstructionClass :: Bin.BitGet ArmInstrClass
+parseInstructionClass = do
+    cl <- Bin.getWord8 2
+    case cl of
+        0 -> return DataProcessing
+        1 -> return LoadStore
+        2 -> return Branch
+        3 -> return Coprocessor
 
 parseArmInstruction :: Bin.BitGet ArmInstr
 parseArmInstruction = do
     condition <- parseCond
-    return DRI {dri=DRInstr {cond=condition}}
+    case condition of
+        Uncond -> return NotParsed
+        otherwise -> do
+            cl <- parseInstructionClass
+            case cl of
+                DataProcessing -> do 
+                    ope <- parseDataProcessing
+                    return ArmInstr {cond=condition,op=ope}
+                LoadStore -> return NotParsed
+                Branch ->   return NotParsed
+                Coprocessor -> return NotParsed
+
+parseDataInstructionClass :: Bin.BitGet DataInstrClass
+parseDataInstructionClass = do 
+    cl <- Bin.getWord8 4
+    case cl of 
+        0 -> return And
+        otherwise -> return Add -- Todo Complete the parse class list
+
+parseDataInstructionOp :: Bin.BitGet DataInstrOp
+parseDataInstructionOp = do
+    cl <- parseDataInstructionClass
+    sys <- Bin.getWord8 1
+    case sys of
+        0 -> return $ DataInstrOp cl NormalInst
+        1 -> return $ DataInstrOp cl SystemInst
+    
+parseDataProcessing :: Bin.BitGet ArmInstrOp
+parseDataProcessing = do
+    op <- parseDataInstructionOp
+    return DRI {dri=DRInstr {opcode=op}}
     
 
 
