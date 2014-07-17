@@ -2,8 +2,10 @@ module ArmDecode () where
 
 import qualified Data.Binary.Bits.Get as Bin
 import Data.Binary
-import Data.Binary.Bits 
-
+import Data.Binary.Bits
+import Data.Bits 
+import Control.Monad
+import Control.Applicative
 
 data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
 
@@ -13,32 +15,59 @@ data ArmInstrClass = DataProcessing | LoadStore | Branch | Coprocessor
 
 data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondVC | CondHI | CondLS | CondGE | CondLT | CondGT | CondLE | CondAL | Uncond
 
-data DataRegisterInstr = DRInstr { opcode :: DataInstrOp, rn :: ArmRegister, rd :: ArmRegister}
+data DataRegisterInstr = DRInstr { opcode :: DataInstrOp, rn :: ArmRegister, rd :: ArmRegister, immOrShift :: Either Word8 ArmRegister, shiftType :: SRType, rm :: ArmRegister}
 data DataInstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Cmp | Cmn | Orr | Mov | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn
 data DataInstrOp  = DataInstrOp DataInstrClass SystemLevel
-
+data SRType = ASR | LSL | LSR | ROR
 data SystemLevel = SystemInst | NormalInst
+
+
+wordToRegister :: Word8 -> ArmRegister
+wordToRegister 0 = R0 
+wordToRegister 1 = R1 
+wordToRegister 2 = R2 
+wordToRegister 3 = R3 
+wordToRegister 4 = R4 
+wordToRegister 5 = R5 
+wordToRegister 6 = R6 
+wordToRegister 7 = R7 
+wordToRegister 8 = R8 
+wordToRegister 9 = R9 
+wordToRegister 10 = R10 
+wordToRegister 11 = R11 
+wordToRegister 12 = R12 
+wordToRegister 13 = R13 
+wordToRegister 14 = R14 
+wordToRegister 15 = R15 
+
+wordToSRType :: Word8 -> SRType
+wordToSRType 0 = LSL
+wordToSRType 1 = LSR
+wordToSRType 2 = ASR
+wordToSRType 3 = ROR
+
+wordToDataClass :: Word8 -> DataInstrClass
+wordToDataClass 0 -> And
+wordToDataClass 1 -> Eor
+wordToDataClass 2 -> Sub
+wordToDataClass 3 -> Rsb
+wordToDataClass 4 -> Add
+wordToDataClass 5 -> Adc
+wordToDataClass 6 -> Sbc
+wordToDataClass 7 -> Rsc
+wordToDataClass 8 -> Tst
+wordToDataClass 9 -> Teq
+wordToDataClass 10 -> Cmp
+wordToDataClass 11 -> Cmn
+wordToDataClass 12 -> Orr
+wordToDataClass 13 -> Mov
+wordToDataClass 14 -> Bic
+wordToDataClass 15 -> Mvn
+
 
 parseRegister :: Bin.BitGet ArmRegister
 parseRegister = do 
-    r <- Bin.getWord8 4
-    case  r of
-        0 -> return R0
-        1 -> return R1
-        2 -> return R2
-        3 -> return R3
-        4 -> return R4
-        5 -> return R5
-        6 -> return R6
-        7 -> return R7
-        8 -> return R8
-        9 -> return R9
-        10 -> return R10
-        11 -> return R11
-        12 -> return R12
-        13 -> return R13
-        14 -> return R14
-        15 -> return R15
+    wordToRegister <$> Bin.getWord8 4
 
 parseCond :: Bin.BitGet Cond
 parseCond = do
@@ -103,7 +132,16 @@ parseDataInstructionOp = do
 parseDataProcessing :: Bin.BitGet ArmInstrOp
 parseDataProcessing = do
     op <- parseDataInstructionOp
-    return DRI {dri=DRInstr {opcode=op}}
+    regn <- parseRegister
+    regd <- parseRegister
+    temp <- Bin.getWord8 5
+    stype <- wordToSRType <$> Bin.getWord8 2
+    shiftCond <- Bin.getWord8 1
+    shiftInfo <- case shiftCond of 
+        0 -> return $ Left temp
+        1 -> return $ Right $ wordToRegister $ (temp `shiftR` 1)
+    regm <- parseRegister
+    return DRI {dri=DRInstr {opcode=op, rn=regn, rd=regd, rm=regm, immOrShift=shiftInfo, shiftType=stype}}
     
 
 
