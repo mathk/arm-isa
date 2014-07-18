@@ -568,6 +568,10 @@ addressToInt :: Address -> Int
 addressToInt (Address (Left i)) = fromIntegral i
 addressToInt (Address (Right i)) = fromIntegral i
 
+machineToInt :: MachineInt -> Int
+machineToInt (MachineInt (Left i)) = fromIntegral i
+machineToInt (MachineInt (Right i)) = fromIntegral i
+
 offsetToInt :: Offset -> Int
 offsetToInt (Offset (Left i)) = fromIntegral i
 offsetToInt (Offset (Right i)) = fromIntegral i
@@ -618,6 +622,14 @@ dumpComment ELFInfo {elfSectionHeaders=shs} = do
     case find isCommentSection  shs of
         Just s -> parseStringSection s
         Nothing -> F.bail "Comment not found"
+
+getSectionContent :: ELFInfo -> String -> ParseElf B.ByteString
+getSectionContent info string = do
+    case sectionHeader info string of
+        Just (ELFSectionHeader {shoffset=off, shsize=size}) -> do
+            F.moveTo $ offsetToInt off
+            F.parseRaw $ machineToInt size
+        Nothing -> F.bail "Section not found"
 
 parse :: ParseElf a -> B.ByteString -> Either String a 
 parse parser string = F.parse ParseState {elfOffset=0, elfSize=F.S32, elfEndianness=F.LittleEndian, elfString=string, elfOffsetState=[] } parser string

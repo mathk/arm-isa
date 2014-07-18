@@ -22,6 +22,7 @@ module FileDecoding
       parseGWord,
       parseIdentifier,
       parseWhile,
+      parseRaw,
       bail,
       skip,
       moveTo,
@@ -233,6 +234,17 @@ parseWhile p = (fmap p <$> peekByte) ==> \mp ->
                then parseByte ==> \b ->
                     (b:) <$> parseWhile p
                else identity []
+
+parseCount :: (ParseStateAccess s) => Int -> Parse s [Word8]
+parseCount 0 = identity []
+parseCount n = do
+    b <- parseByte
+    (b:) <$> parseCount (n-1)
+
+parseRaw :: (ParseStateAccess s) => Int -> Parse s B.ByteString
+parseRaw n = B.pack <$> parseCount n
+
+
 {-|
     Parse a continuous byte of alpha numeric character and report it as a String.
  -}

@@ -1,9 +1,13 @@
-module ArmDecode () where
+module ArmDecode (
+    ArmInstr, parseStream,
+) where
 
 import qualified Data.Binary.Bits.Get as Bin
 import Data.Binary
+import Data.Binary.Get
 import Data.Binary.Bits
 import Data.Bits 
+import Data.ByteString.Lazy
 import Control.Monad
 import Control.Applicative
 
@@ -17,10 +21,17 @@ data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondV
 
 data DataRegisterInstr = DRInstr { opcode :: DataInstrOp, rn :: ArmRegister, rd :: ArmRegister, immOrShift :: Either Word8 ArmRegister, shiftType :: SRType, rm :: ArmRegister}
 data DataInstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Cmp | Cmn | Orr | Mov | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn
+    deriving (Show)
 data DataInstrOp  = DataInstrOp DataInstrClass SystemLevel
 data SRType = ASR | LSL | LSR | ROR
 data SystemLevel = SystemInst | NormalInst
 
+instance Show DataRegisterInstr where
+    show DRInstr {opcode=(DataInstrOp cl sys)} = show cl
+
+instance Show ArmInstr where
+    show ArmInstr {op=(DRI {dri=inst})} = show inst
+    show NotParsed = "Unknown"
 
 wordToRegister :: Word8 -> ArmRegister
 wordToRegister 0 = R0 
@@ -47,22 +58,22 @@ wordToSRType 2 = ASR
 wordToSRType 3 = ROR
 
 wordToDataClass :: Word8 -> DataInstrClass
-wordToDataClass 0 -> And
-wordToDataClass 1 -> Eor
-wordToDataClass 2 -> Sub
-wordToDataClass 3 -> Rsb
-wordToDataClass 4 -> Add
-wordToDataClass 5 -> Adc
-wordToDataClass 6 -> Sbc
-wordToDataClass 7 -> Rsc
-wordToDataClass 8 -> Tst
-wordToDataClass 9 -> Teq
-wordToDataClass 10 -> Cmp
-wordToDataClass 11 -> Cmn
-wordToDataClass 12 -> Orr
-wordToDataClass 13 -> Mov
-wordToDataClass 14 -> Bic
-wordToDataClass 15 -> Mvn
+wordToDataClass 0 = And
+wordToDataClass 1 = Eor
+wordToDataClass 2 = Sub
+wordToDataClass 3 = Rsb
+wordToDataClass 4 = Add
+wordToDataClass 5 = Adc
+wordToDataClass 6 = Sbc
+wordToDataClass 7 = Rsc
+wordToDataClass 8 = Tst
+wordToDataClass 9 = Teq
+wordToDataClass 10 = Cmp
+wordToDataClass 11 = Cmn
+wordToDataClass 12 = Orr
+wordToDataClass 13 = Mov
+wordToDataClass 14 = Bic
+wordToDataClass 15 = Mvn
 
 
 parseRegister :: Bin.BitGet ArmRegister
@@ -115,11 +126,7 @@ parseArmInstruction = do
                 Coprocessor -> return NotParsed
 
 parseDataInstructionClass :: Bin.BitGet DataInstrClass
-parseDataInstructionClass = do 
-    cl <- Bin.getWord8 4
-    case cl of 
-        0 -> return And
-        otherwise -> return Add -- Todo Complete the parse class list
+parseDataInstructionClass = wordToDataClass <$> Bin.getWord8 4
 
 parseDataInstructionOp :: Bin.BitGet DataInstrOp
 parseDataInstructionOp = do
@@ -144,5 +151,11 @@ parseDataProcessing = do
     return DRI {dri=DRInstr {opcode=op, rn=regn, rd=regd, rm=regm, immOrShift=shiftInfo, shiftType=stype}}
     
 
+parseInstrStream :: Int -> Bin.BitGet [ArmInstr]
+parseInstrStream 0 = return []
+parseInstrStream n = do 
+    i <- parseArmInstruction
+    (i:) <$> parseInstrStream (n-1)
 
-
+parseStream :: ByteString -> [ArmInstr]
+parseStream s =  runGet (Bin.runBitGet $ parseInstrStream 10) s
