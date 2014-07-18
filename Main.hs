@@ -1,4 +1,5 @@
 import qualified ElfParser as ELF
+import qualified ArmDecode as Arm
 import qualified Data.ByteString as B
 import qualified Graphics.UI.Threepenny as UI
 import System.Environment
@@ -65,7 +66,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.elfHeader value)) ++ [displayElfCanvas value])
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.elfHeader value)) ++ [displayElfCanvas value] ++ (displayElfTextSection value input))
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -139,6 +140,12 @@ displayElfCanvas info = do
             --(UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
+
+displayElfTextSection :: ELF.ELFInfo -> B.ByteString -> [UI Element]
+displayElfTextSection info s =
+    case ELF.parse (ELF.getSectionContent info ".text") s of
+        Right stream -> map toUi (Arm.parseStream stream)
+      where toUi armInst = UI.p # set UI.text (show armInst)
 
 normalizeY :: Int -> Int -> Double
 normalizeY value max= (((fromIntegral value) * 1640.0) / (fromIntegral max)) 

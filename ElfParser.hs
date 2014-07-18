@@ -13,7 +13,7 @@ module ElfParser
       ELFSectionHeader(..),
       sectionHeader, programHeaders, sectionName,
       parseHeader,
-      parseFile,
+      parseFile, getSectionContent,
       addressToInt,
       offsetToInt,
       parse
@@ -608,7 +608,7 @@ parseFile = do
     F.moveTo $ addressToInt (shoff hdr)
     shs <- parseSectionHeaders $ fromIntegral (shnum hdr)
     state <- F.getState
-    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(B.length (F.string state))}
+    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(fromIntegral $ B.length $ F.string state)}
 
 isCommentSection :: ELFSectionHeader -> Bool
 isCommentSection ELFSectionHeader {shname=ELFSectionName (Left s)}

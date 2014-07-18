@@ -104,7 +104,7 @@ putState :: a -> Parse a ()
 putState s = Parse (\_ -> Right((), s))
 
 isInRange :: Int -> B.ByteString -> Bool
-isInRange n string = n >= 0 && (B.length string) < n 
+isInRange n string = n >= 0 && fromIntegral (B.length string) < n 
 
 {-|
     Stop the parser and report an error.
@@ -131,9 +131,9 @@ w32tow64 mosteWord lessWord =
 parseByte :: (ParseStateAccess s) => Parse s Word8
 parseByte = do
     initState <- getState
-    assert ((offset initState) < B.length (string initState)) "no more input"
+    assert ((offset initState) < fromIntegral (B.length $ string initState)) "no more input"
     putState $ putOffset initState (offset initState + 1)
-    return $ B.index (string initState) (offset initState)
+    return $ B.index (string initState) (fromIntegral $ offset initState)
 
 parseHalf :: (ParseStateAccess s) => Parse s Word16
 parseHalf = getState ==> \state ->
@@ -217,9 +217,9 @@ parseChar = w2c <$> parseByte
 peekByte :: (ParseStateAccess s) => Parse s (Maybe Word8)
 peekByte = do
     state <- getState
-    if (offset state) >= B.length (string state)
+    if (offset state) >= fromIntegral (B.length $ string state)
     then return Nothing
-    else return (Just (B.index (string state) (offset state)))
+    else return (Just (B.index (string state) (fromIntegral $ offset state)))
 
 peekChar :: (ParseStateAccess s) => Parse s (Maybe Char)
 peekChar = fmap w2c <$> peekByte
