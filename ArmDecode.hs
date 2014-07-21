@@ -23,6 +23,25 @@ data ArmInstrClass = DataProcessing | LoadStore | Branch | Coprocessor
 data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondVC | CondHI | CondLS | CondGE | CondLT | CondGT | CondLE | CondAL | Uncond
 data DataImmerdiateInstr = DIInstr DataInstrOp ArmRegister ArmRegister Bin.Word32
 data DataRegisterInstr = DRInstr { opcode :: DataInstrOp, rn :: ArmRegister, rd :: ArmRegister, immOrShift :: Either Bin.Word32 ArmRegister, shiftType :: SRType, rm :: ArmRegister}
+
+data ArgumentsInstruction = 
+        RegisterShiftedArgs 
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rs register
+            ArmRegister -- ^ The rm register
+            SRType      -- ^ Shift type
+    |   RegisterArgs
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rd regsiter
+            ArmRegister -- ^ The rm register
+            SRType      -- ^ Shift type
+            Bin.Word32  -- ^ Immediate value to shift
+    |   ImmediateArgs
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rd register
+            Bin.Word32  -- ^ Immediate value
+
 data DataInstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Cmp | Cmn | Orr | Mov | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn
     deriving (Show)
 data DataInstrOp  = DataInstrOp DataInstrClass SystemLevel
@@ -32,6 +51,9 @@ data SystemLevel = SystemInst | NormalInst
 data ArmStream = ArmStream ByteString Bin.Word32
 
 type ArmStreamState a = State ArmStream a
+
+instance Show ArgumentsInstruction where
+    show (RegisterArgs rn rd rm st, 0) = printf "%s,%s,%s" (show rd) (show rd) (show rm) 
 
 instance Show DataRegisterInstr where
     show DRInstr {opcode=(DataInstrOp Mov sys), rd=regd, rm=regm} = printf "%s%%s %s,%s" (show Mov) (show regd) (show regm)
@@ -229,7 +251,24 @@ parseRegisterInfo = do
         1 -> Right <$> parseRegister 8
     regm <- parseRegister 0
     return (regn,regd,shiftInfo,stype,regm)
-   
+
+parseRegisterShiftArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterShiftArgument = do
+    regn    <- parseRegister 16
+    regd    <- parseRegister 12
+    stype   <- wordToSRType <$> instructionBits 5 2
+    regm    <- parseRegister 0
+    regs    <- parseRegister 8
+    return $ RegisterShiftedArgs regn regd regs regm stype
+
+parseRegisterArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterArgument = do    
+    regn    <- parseRegister 16
+    regd    <- parseRegister 12
+    stype   <- wordToSRType <$> instructionBits 5 2
+    regm    <- parseRegister 0
+    imm     <- instructionBits 7 5
+    return $ RegisterArgs regn regd regm stype imm
 
 parseImmediateInfo :: ArmStreamState (ArmRegister,ArmRegister, Bin.Word32)
 parseImmediateInfo = do
