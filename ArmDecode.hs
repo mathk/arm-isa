@@ -16,13 +16,17 @@ import Text.Printf
 data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | R11 | R12 | SP | R14 | PC
     deriving (Show)
 
-data ArmInstr = ArmInstr {code :: Bin.Word32, cond :: Cond, op :: ArmInstrOp} | NotParsed
-data ArmInstrOp = DRI DataRegisterInstr | DII DataImmerdiateInstr
+data ArmInstr = 
+          ArmInstr {code :: Bin.Word32, cond :: Cond, memonic :: DataInstrClass, isFlags :: Bool, args :: ArgumentsInstruction  } 
+        | NotParsed
+        | Undefined
+
 data ArmInstrClass = DataProcessing | LoadStore | Branch | Coprocessor
 
 data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondVC | CondHI | CondLS | CondGE | CondLT | CondGT | CondLE | CondAL | Uncond
-data DataImmerdiateInstr = DIInstr DataInstrOp ArmRegister ArmRegister Bin.Word32
-data DataRegisterInstr = DRInstr { opcode :: DataInstrOp, rn :: ArmRegister, rd :: ArmRegister, immOrShift :: Either Bin.Word32 ArmRegister, shiftType :: SRType, rm :: ArmRegister}
+
+--data DataImmerdiateInstr = DIInstr DataInstrOp ArmRegister ArmRegister Bin.Word32
+--data DataRegisterInstr = DRInstr { opcode :: DataInstrOp, rn :: ArmRegister, rd :: ArmRegister, immOrShift :: Either Bin.Word32 ArmRegister, shiftType :: SRType, rm :: ArmRegister}
 
 data ArgumentsInstruction = 
         RegisterShiftedArgs 
@@ -44,31 +48,36 @@ data ArgumentsInstruction =
 
 data DataInstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Cmp | Cmn | Orr | Mov | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn
     deriving (Show)
-data DataInstrOp  = DataInstrOp DataInstrClass SystemLevel
+
 data SRType = ASR | LSL | LSR | ROR
-data SystemLevel = SystemInst | NormalInst
 
 data ArmStream = ArmStream ByteString Bin.Word32
 
 type ArmStreamState a = State ArmStream a
 
 instance Show ArgumentsInstruction where
-    show (RegisterArgs rn rd rm st, 0) = printf "%s,%s,%s" (show rd) (show rd) (show rm) 
+    show (RegisterArgs rn rd rm _ 0) = printf "%s,%s,%s" (show rd) (show rn) (show rm)
+    show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s #%d" (show rd) (show rn) (show rm) (show st) n
+    show (RegisterShiftedArgs rn rd rs rm st) = printf "%s,%s,%s %s %s" (show rd) (show rn) (show rm) (show st) (show rs)
+    show (ImmediateArgs rn rd imm) = printf "%s,%s, #%d" (show rd) (show rn) imm
 
-instance Show DataRegisterInstr where
-    show DRInstr {opcode=(DataInstrOp Mov sys), rd=regd, rm=regm} = printf "%s%%s %s,%s" (show Mov) (show regd) (show regm)
-    show DRInstr {opcode=(DataInstrOp cl sys), rn=regn, rd=regd, rm=regm} = printf "%s%%s %s,%s,%s" (show cl) (show regd) (show regn) (show regm)
+instance Show SRType where
+    show ASR = "asr"
+    show LSL = "lsl"
+    show LSR = "lsr"
+    show ROR = "ror"
 
-instance Show DataImmerdiateInstr where
-    show (DIInstr (DataInstrOp cl sys) rn rd imm) = printf "%s%%s %s,%s,#%d" (show cl) (show rd) (show rn) imm
+--instance Show DataRegisterInstr where
+--    show DRInstr {opcode=(DataInstrOp Mov sys), rd=regd, rm=regm} = printf "%s%%s %s,%s" (show Mov) (show regd) (show regm)
+--    show DRInstr {opcode=(DataInstrOp cl sys), rn=regn, rd=regd, rm=regm} = printf "%s%%s %s,%s,%s" (show cl) (show regd) (show regn) (show regm)
+
+--instance Show DataImmerdiateInstr where
+--    show (DIInstr (DataInstrOp cl sys) rn rd imm) = printf "%s%%s %s,%s,#%d" (show cl) (show rd) (show rn) imm
 
 instance Show ArmInstr where
-    show ArmInstr {op=ope, cond=c,code=co} = printf ("%08X " ++ (show ope)) co (show c)
+    show ArmInstr {code=co, cond=c,memonic=m, isFlags=flgs, args=arguments} = printf "%08X %s%s %s" co (show m) (show c) (show arguments)
     show NotParsed = "Unknown"
-
-instance Show ArmInstrOp where
-    show (DRI r) = show r
-    show (DII i) = show i
+    show Undefined = "Undefined"
 
 instance Show Cond where
     show CondEQ = ".eq"
@@ -186,8 +195,10 @@ parseArmInstruction = do
             cl <- parseInstructionClass
             case cl of
                 DataProcessing -> do 
-                    ope <- parseDataProcessing
-                    return ArmInstr {code=inst,cond=condition,op=ope}
+                    part <- parseDataProcessing
+                    case part of 
+                        Just (cl, flags, arguments) -> return $ ArmInstr {code=inst, cond=condition, memonic=cl, isFlags=flags, args=arguments}
+                        Nothing -> return Undefined
                 LoadStore -> return NotParsed
                 Branch ->   return NotParsed
                 Coprocessor -> return NotParsed
@@ -208,49 +219,31 @@ parseDataInstructionClass = do
                 (3,_) -> Ror
         otherwise -> return $ wordToDataClass cl
 
-isMiscDataProcessing :: ArmStreamState Bool
-isMiscDataProcessing = do
-    fst <- instructionBits 23 2
-    snd <- instructionBits 20 3
-    case (fst,snd) of
-        (2,0) -> return True
-        otherwise -> return False
-
-parseDataInstructionOp :: ArmStreamState DataInstrOp
-parseDataInstructionOp = do
-    isMisc <- isMiscDataProcessing
-    case isMisc of
-        True -> return $ DataInstrOp Mov NormalInst -- Todo Parse
-        False -> do 
-            cl <- parseDataInstructionClass
-            sys <- instructionBits 20 1
-            case sys of
-                0 -> return $ DataInstrOp cl NormalInst
-                1 -> return $ DataInstrOp cl SystemInst
-    
-parseDataProcessing :: ArmStreamState ArmInstrOp
+parseDataProcessing :: ArmStreamState (Maybe (DataInstrClass, Bool, ArgumentsInstruction))
 parseDataProcessing = do
-    op <- parseDataInstructionOp
-    isIm <- instructionBits 25 1
-    case isIm of
-        0 -> do 
-            (regn,regd,shiftInfo,stype,regm) <- parseRegisterInfo
-            return $ DRI $ DRInstr {opcode=op, rn=regn, rd=regd, rm=regm, immOrShift=shiftInfo, shiftType=stype}
-        1 -> do
-            (regn,regd,imm) <- parseImmediateInfo
-            return $ DII $ DIInstr op regn regd imm
-
-parseRegisterInfo :: ArmStreamState (ArmRegister,ArmRegister,Either Bin.Word32 ArmRegister, SRType, ArmRegister)
-parseRegisterInfo = do
-    regn <- parseRegister 16
-    regd <- parseRegister 12
-    stype <- wordToSRType <$> instructionBits 5 2
-    shiftCond <- instructionBits 4 1
-    shiftInfo <- case shiftCond of 
-        0 -> Left <$> instructionBits 7 5
-        1 -> Right <$> parseRegister 8
-    regm <- parseRegister 0
-    return (regn,regd,shiftInfo,stype,regm)
+    op <- instructionBits 25 1
+    op124 <- instructionBits 24 1
+    op123 <- instructionBits 23 1
+    op122 <- instructionBits 22 1
+    op121 <- instructionBits 21 1
+    op120 <- instructionBits 20 1
+    op27 <- instructionBits 7 1
+    op26 <- instructionBits 6 1
+    op25 <- instructionBits 5 1
+    op24 <- instructionBits 4 1
+    cls <- parseDataInstructionClass
+    case (op,op124,op123,op122,op121,op120,op27,op26,op25,op24) of
+        (0,_,_,_,_,_, _,_,_,0) -> do 
+            args <- parseRegisterArgument
+            return $ Just (cls, testBit op120 0, args) 
+        (0,_,_,_,_,_, 0,_,_,1) -> do
+            args <- parseRegisterShiftArgument 
+            return $ Just (cls, testBit op120 0, args)
+        (1,_,_,_,_,_, _,_,_,_) -> do
+            args <- parseImmediateArgument
+            return $ Just (cls, testBit op120 0, args)
+        otherwise -> do
+            return Nothing
 
 parseRegisterShiftArgument :: ArmStreamState ArgumentsInstruction
 parseRegisterShiftArgument = do
@@ -270,12 +263,12 @@ parseRegisterArgument = do
     imm     <- instructionBits 7 5
     return $ RegisterArgs regn regd regm stype imm
 
-parseImmediateInfo :: ArmStreamState (ArmRegister,ArmRegister, Bin.Word32)
-parseImmediateInfo = do
+parseImmediateArgument :: ArmStreamState ArgumentsInstruction
+parseImmediateArgument = do 
     regn <- parseRegister 16
     regd <- parseRegister 12
     imm <- instructionBits 0 12
-    return (regn, regd, imm) 
+    return $ ImmediateArgs regn regd imm
 
 parseInstrStream :: Int -> ArmStreamState [ArmInstr]
 parseInstrStream 0 = return []
