@@ -51,6 +51,17 @@ data ArgumentsInstruction =
     |   ImmediateMovArgs
             ArmRegister -- ^ The rd register
             Bin.Word32  -- ^ Immediate value
+    |   RegisterTestArgs
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rm register
+            SRType      -- ^ Shift type
+            Bin.Word32  -- ^ Immediate value to shift
+    |   ShiftArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rm register
+            Bin.Word32  -- ^ Immediate value to shift
+
+newtype Shift = Shift (SRType,Bin.Word32)
 
 data DataInstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Cmp | Cmn | Orr | Mov | Movw | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn
     deriving (Show)
@@ -62,12 +73,17 @@ data ArmStream = ArmStream ByteString Bin.Word32
 type ArmStreamState a = State ArmStream a
 
 instance Show ArgumentsInstruction where
-    show (RegisterArgs rn rd rm _ 0) = printf "%s,%s,%s" (show rd) (show rn) (show rm)
-    show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s #%d" (show rd) (show rn) (show rm) (show st) n
+    show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s" (show rd) (show rn) (show rm) (show $ Shift (st,n))
     show (RegisterMovArgs rd rm) = printf "%s,%s" (show rd) (show rm)
     show (RegisterShiftedArgs rn rd rs rm st) = printf "%s,%s,%s %s %s" (show rd) (show rn) (show rm) (show st) (show rs)
     show (ImmediateArgs rn rd imm) = printf "%s,%s, #%d" (show rd) (show rn) imm
     show (ImmediateMovArgs rd imm) = printf "%s, #%d" (show rd) imm
+    show (RegisterTestArgs rn rm st n) = printf "%s, %s %s" (show rn) (show rm) (show $ Shift (st,n))
+    show (ShiftArgs rd rm n) = printf "%s, %s  #%n" (show rd) (show rm) n
+
+instance Show Shift where
+    show (Shift (_,0)) = ""
+    show (Shift (st,n)) = printf "%s #%d" (show st) n
 
 instance Show SRType where
     show ASR = "asr"
@@ -265,32 +281,40 @@ parseDataProcessingRegister = do
     op25 <- instructionBits 5 1
     imm <- instructionBits 7 5
     isFlags  <- (`testBit` 0) <$> instructionBits 20 1
+    argReg <- parseRegisterArgument
+    argTest <- parseRegisterTestArgument
+    argMov <- parseRegisterMovArgs
+    argShift <- parseShiftArgument
     case (op124,op123,op122,op121,op120,op26,op25,imm) of
-        (0,0,0,0,_, _,_, _) -> return (And
-        (0,0,0,1,_, _,_, _) -> return (Eor
-        (0,0,1,0,_, _,_, _) -> return (Sub
-        (0,0,1,1,_, _,_, _) -> return (Rsb
-        (0,1,0,0,_, _,_, _) -> return (Add
-        (0,1,0,1,_, _,_, _) -> return (Adc
-        (0,1,1,0,_, _,_, _) -> return (Sbc
-        (0,1,1,1,_, _,_, _) -> return (Rsc
-        (1,0,0,0,1, _,_, _) -> return (Tst
-        (1,0,0,1,1, _,_, _) -> return (Teq
-        (1,0,1,0,1, _,_, _) -> return (Cmp
-        (1,0,1,1,1, _,_, _) -> return (Cmn
-        (1,1,0,0,_, _,_, _) -> return (Orr
-        (1,1,0,1,_, 0,0, 0) -> return (Mov
-        (0,1,0,1,_, 0,0, _) -> return (Lsl
-        (0,1,0,1,_, 0,1, _) -> return (Lsr
-        (0,1,0,1,_, 1,0, _) -> return (Asr
-        (0,1,0,1,_, 1,1, 0) -> return (Rrx
-        (0,1,0,1,_, 1,1, _) -> return (Ror
-        (1,1,1,0,_, _,_, _) -> return (Bic
-        (1,1,1,1,_, _,_, _) -> return (Mvn
+        (0,0,0,0,_, _,_, _) -> return $ Just (And,isFlags,argReg)
+        (0,0,0,1,_, _,_, _) -> return $ Just (Eor,isFlags,argReg)
+        (0,0,1,0,_, _,_, _) -> return $ Just (Sub,isFlags,argReg)
+        (0,0,1,1,_, _,_, _) -> return $ Just (Rsb,isFlags,argReg)
+        (0,1,0,0,_, _,_, _) -> return $ Just (Add,isFlags,argReg)
+        (0,1,0,1,_, _,_, _) -> return $ Just (Adc,isFlags,argReg)
+        (0,1,1,0,_, _,_, _) -> return $ Just (Sbc,isFlags,argReg)
+        (0,1,1,1,_, _,_, _) -> return $ Just (Rsc,isFlags,argReg)
+        (1,0,0,0,1, _,_, _) -> return $ Just (Tst,True,argTest)
+        (1,0,0,1,1, _,_, _) -> return $ Just (Teq,True,argTest)
+        (1,0,1,0,1, _,_, _) -> return $ Just (Cmp,True,argTest)
+        (1,0,1,1,1, _,_, _) -> return $ Just (Cmn,True,argTest)
+        (1,1,0,0,_, _,_, _) -> return $ Just (Orr,isFlags,argReg)
+        (1,1,0,1,_, 0,0, 0) -> do 
+            case argMov of
+                Nothing -> return Nothing
+                Just mov -> return $ Just (Mov,isFlags,mov)
+        (1,1,0,1,_, 0,0, _) -> return $ Just (Lsl,isFlags,argShift)
+        (1,1,0,1,_, 0,1, _) -> return $ Just (Lsr,isFlags,argShift)
+        (1,1,0,1,_, 1,0, _) -> return $ Just (Asr,isFlags,argShift)
+        (1,1,0,1,_, 1,1, 0) -> do
+            case argMov of
+                Nothing -> return Nothing
+                Just mov -> return $ Just (Rrx,isFlags,mov)
+        (1,1,0,1,_, 1,1, _) -> return $ Just (Ror,isFlags,argShift)
+        (1,1,1,0,_, _,_, _) -> return $ Just (Bic,isFlags,argReg)
+        (1,1,1,1,_, _,_, _) -> return $ Just (Mvn,isFlags,argReg)
+        otherwise -> return Nothing
         
-    args <- parseRegisterArgument
-    return $ Just (cls, isFlags, args) 
-
 parseRegisterShiftArgument :: ArmStreamState ArgumentsInstruction
 parseRegisterShiftArgument = do
     regn    <- parseRegister 16
@@ -310,6 +334,7 @@ parseRegisterArgument = do
     return $ RegisterArgs regn regd regm stype imm
 
 parseRegisterMovArgs :: ArmStreamState (Maybe ArgumentsInstruction)
+parseRegisterMovArgs = do
     regd <- parseRegister 12
     regm <- parseRegister 0
     assert <- instructionBits 4 8
@@ -330,6 +355,21 @@ parseImmediateMovArgument = do
     immHigh <- instructionBits 16 4
     regd <- parseRegister 12
     return $ ImmediateMovArgs regd (immLow + (immHigh `shiftL` 12))
+
+parseRegisterTestArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterTestArgument = do
+    regn <- parseRegister 16
+    regm <- parseRegister 0
+    stype <- wordToSRType <$> instructionBits 5 2
+    imm <- instructionBits 7 5
+    return $ RegisterTestArgs regn regm stype imm
+
+parseShiftArgument :: ArmStreamState ArgumentsInstruction
+parseShiftArgument = do
+    regd <- parseRegister 12
+    regm <- parseRegister 0
+    imm     <- instructionBits 7 5
+    return $ ShiftArgs regd regm imm
 
 parseInstrStream :: Int -> ArmStreamState [ArmInstr]
 parseInstrStream 0 = return []
