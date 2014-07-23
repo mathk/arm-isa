@@ -48,6 +48,9 @@ data ArgumentsInstruction =
     |   ImmediateMovArgs
             ArmRegister -- ^ The rd register
             Bin.Word32  -- ^ Immediate value
+    |   ImmediateTestArgs
+            ArmRegister -- ^ The rn register
+            Bin.Word32  -- ^ The immediate value
     |   RegisterTestArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rm register
@@ -58,7 +61,11 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rm register
             Bin.Word32  -- ^ Immediate value to shift
     |   BranchArgs
-            Bin.Word32 -- ^ Immediate value to branch
+            Bin.Word32  -- ^ Immediate value to branch
+{-- This is not used for the time being
+    |   ImmediatePcArgs
+            ArmRegister -- ^ The rd register
+            Bin.Word32  -- ^ The immediate value --}
 
 newtype Shift = Shift (SRType,Bin.Word32)
 
@@ -287,11 +294,39 @@ parseDataProcessing = do
             args <- parseRegisterShiftArgument 
             return $ Just (cls, testBit op120 0, args)
         [1,1,0,0,0,0,     _,_,_,_] -> do
-            args <- parseImmediateMovArgument
+            args <- parseImmediateMov16Argument
             return $ Just (Movw, False, args)
-        [1,_,_,_,_,op120, _,_,_,_] -> do
-            args <- parseImmediateArgument
-            return $ Just (cls, testBit op120 0, args)
+        [1,_,_,_,_,_,    _,_,_,_] -> parseDataProcessingImmediate
+        otherwise -> return Nothing
+
+parseDataProcessingImmediate :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseDataProcessingImmediate = do
+    bitsField   <- instructionArrayBits [24,23,22,21,20,19,18,17,16]
+    isFlags     <- (`testBit` 0) <$> instructionBits 20 1
+    argImmMov   <- parseImmediateMovArgument
+    argImm      <- parseImmediateArgument
+    argImmTest  <- parseImmediateTestArgument
+    case bitsField of
+        [0,0,0,0,_, _,_,_,_]  -> return $ Just (And,isFlags,argImm)
+        [0,0,0,1,_, _,_,_,_]  -> return $ Just (Eor,isFlags,argImm)
+        --[0,0,1,0,0, 1,1,1,1]  -> (Sub,isFlags,argImm) Not used
+        [0,0,1,0,1, 1,1,1,1]  -> return Nothing
+        [0,0,1,0,_, _,_,_,_]  -> return $ Just (Sub,isFlags,argImm)
+        [0,0,1,1,_, _,_,_,_]  -> return $ Just (Rsb,isFlags,argImm)
+        --[0,1,0,0,0, 1,1,1,1]  -> (Add,isFlags,argImm) Not used
+        [0,1,0,0,1, 1,1,1,1]  -> return Nothing
+        [0,1,0,0,_, _,_,_,_]  -> return $ Just (Add,isFlags,argImm)
+        [0,1,0,1,_, _,_,_,_]  -> return $ Just (Adc,isFlags,argImm)
+        [0,1,1,0,_, _,_,_,_]  -> return $ Just (Sbc,isFlags,argImm)
+        [0,1,1,1,_, _,_,_,_]  -> return $ Just (Rsc,isFlags,argImm)
+        [1,0,0,0,1, _,_,_,_]  -> return $ Just (Tst,True,argImmTest)
+        [1,0,0,1,1, _,_,_,_]  -> return $ Just (Teq,True,argImmTest)
+        [1,0,1,0,1, _,_,_,_]  -> return $ Just (Cmp,True,argImmTest)
+        [1,0,1,1,1, _,_,_,_]  -> return $ Just (Cmn,True,argImmTest)
+        [1,1,0,0,_, _,_,_,_]  -> return $ Just (Orr,isFlags,argImm)
+        [1,1,0,1,_, _,_,_,_]  -> return $ Just (Movw,isFlags,argImmMov)
+        [1,1,1,0,_, _,_,_,_]  -> return $ Just (Bic,isFlags,argImm)
+        [1,1,1,1,_, _,_,_,_]  -> return $ Just (Mvn,isFlags,argImm)
         otherwise -> return Nothing
 
 parseDataProcessingRegister :: ArmStreamState (Maybe (InstrClass, Bool, ArgumentsInstruction))
@@ -367,12 +402,24 @@ parseImmediateArgument = do
     imm <- instructionBits 0 12
     return $ ImmediateArgs regn regd imm
 
-parseImmediateMovArgument :: ArmStreamState ArgumentsInstruction
-parseImmediateMovArgument = do
+parseImmediateTestArgument :: ArmStreamState ArgumentsInstruction
+parseImmediateTestArgument = do 
+    regn <- parseRegister 16
+    imm <- instructionBits 0 12
+    return $ ImmediateTestArgs regn imm
+
+parseImmediateMov16Argument :: ArmStreamState ArgumentsInstruction
+parseImmediateMov16Argument = do
     immLow <- instructionBits 0 12
     immHigh <- instructionBits 16 4
     regd <- parseRegister 12
     return $ ImmediateMovArgs regd (immLow + (immHigh `shiftL` 12))
+
+parseImmediateMovArgument :: ArmStreamState ArgumentsInstruction
+parseImmediateMovArgument = do
+    imm <- instructionBits 0 12
+    regd <- parseRegister 12
+    return $ ImmediateMovArgs regd imm
 
 parseRegisterTestArgument :: ArmStreamState ArgumentsInstruction
 parseRegisterTestArgument = do
