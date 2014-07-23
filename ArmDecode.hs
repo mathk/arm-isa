@@ -292,31 +292,12 @@ parseBranchLink = do
     args <- parseBranchArgument
     return $ Just (Bl,False,args) 
 
-parseDataInstructionClass :: ArmStreamState InstrClass
-parseDataInstructionClass = do 
-    cl <-  instructionBits 21 4
-    case wordToDataClass cl of
-        Mov -> do
-            op2 <- instructionBits 5 2
-            imm5 <- instructionBits 7 5
-            return $ case (op2,imm5) of
-                (0,0) -> Mov
-                (0,_) -> Lsl 
-                (1,_) -> Lsr
-                (2,_) -> Asr
-                (3,0) -> Rrx
-                (3,_) -> Ror
-        otherwise -> return $ wordToDataClass cl
-
 parseDataProcessing :: ArmStreamState (Maybe (InstrClass, Bool, ArgumentsInstruction))
 parseDataProcessing = do
-    cls <- parseDataInstructionClass
     bitsField <- instructionArrayBits [25,24,23,22,21,20,7,6,5,4]
     case bitsField of
         [0,_,_,_,_,_,     _,_,_,0] -> parseDataProcessingRegister
-        [0,_,_,_,_,op120, 0,_,_,1] -> do
-            args <- parseRegisterShiftArgument 
-            return $ Just (cls, testBit op120 0, args)
+        [0,_,_,_,_,op120, 0,_,_,1] -> parseDataProcessingRegisterShift
         [1,1,0,0,0,0,     _,_,_,_] -> do
             args <- parseImmediateMov16Argument
             return $ Just (Movw, False, args)
