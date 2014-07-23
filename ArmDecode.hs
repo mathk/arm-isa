@@ -12,8 +12,9 @@ import Control.Monad
 import Control.Applicative
 import Control.Monad.State.Lazy
 import Text.Printf
+import Data.Tuple.All
 
-data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | R11 | R12 | SP | R14 | PC
+data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | FP | R12 | SP | LR | PC
     deriving (Show)
 
 data ArmInstr = 
@@ -32,6 +33,20 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rs register
             ArmRegister -- ^ The rm register
             SRType      -- ^ Shift type
+    |   RegisterShiftShiftedArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rn register
+    |   RegisterShiftedTestArgs
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rs register
+            ArmRegister -- ^ The rm register
+            SRType      -- ^ Shift type
+    |   RegisterShiftedMvnArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rs register
+            ArmRegister -- ^ The rm register
+            SRType      -- ^ Shift type
     |   RegisterArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rd regsiter
@@ -41,6 +56,11 @@ data ArgumentsInstruction =
     |   RegisterMovArgs 
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rm register
+    |   RegisterMvnArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rm register
+            SRType      -- ^ Shift type
+            Bin.Word32  -- ^ Immediate value to shift
     |   ImmediateArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rd register
@@ -80,11 +100,15 @@ type ArmStreamState a = State ArmStream a
 
 instance Show ArgumentsInstruction where
     show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s" (show rd) (show rn) (show rm) (show $ Shift (st,n))
+    show (RegisterShiftShiftedArgs rd rm rn) = printf "%s,%s,%s %s" (show rd) (show rn)
     show (RegisterMovArgs rd rm) = printf "%s,%s" (show rd) (show rm)
     show (RegisterShiftedArgs rn rd rs rm st) = printf "%s,%s,%s %s %s" (show rd) (show rn) (show rm) (show st) (show rs)
+    show (RegisterShiftedTestArgs rn rs rm st) = printf "%s,%s %s %s" (show rn) (show rm) (show st) (show rs)
+    show (RegisterShiftedMvnArgs rd rs rm st) = printf "%s,%s %s %s" (show rd) (show rm) (show st) (show rs)
     show (ImmediateArgs rn rd imm) = printf "%s,%s, #%d" (show rd) (show rn) imm
     show (ImmediateMovArgs rd imm) = printf "%s, #%d" (show rd) imm
     show (RegisterTestArgs rn rm st n) = printf "%s, %s %s" (show rn) (show rm) (show $ Shift (st,n))
+    show (RegisterMvnArgs rd rm st n) = printf "%s, %s %s" (show rd) (show rm) (show $ Shift (st,n))
     show (ShiftArgs rd rm n) = printf "%s, %s  #%d" (show rd) (show rm) n
     show (BranchArgs imm) = printf "<PC+%x>" imm
 
@@ -133,10 +157,10 @@ wordToRegister 7 = R7
 wordToRegister 8 = R8 
 wordToRegister 9 = R9 
 wordToRegister 10 = R10 
-wordToRegister 11 = R11 
+wordToRegister 11 = FP 
 wordToRegister 12 = R12 
 wordToRegister 13 = SP 
-wordToRegister 14 = R14 
+wordToRegister 14 = LR 
 wordToRegister 15 = PC 
 
 wordToSRType :: Bin.Word32 -> SRType
@@ -299,10 +323,40 @@ parseDataProcessing = do
         [1,_,_,_,_,_,    _,_,_,_] -> parseDataProcessingImmediate
         otherwise -> return Nothing
 
+parseDataProcessingRegisterShift :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseDataProcessingRegisterShift = do
+    bitsField <- instructionArrayBits [24,23,22,21,20,6,5]
+    isFlags     <- (`testBit` 0) <$> instructionBits 20 1
+    argRegShift <- parseRegisterShiftArgument
+    argRegShiftTest <- parseRegisterShiftTestArgument
+    argShiftShift <- parseRegisterShiftShiftArgument
+    argMvn <- parseRegisterShiftMvnArgument
+    case bitsField of 
+        [0,0,0,0,_, _,_] -> return $ Just (And,isFlags,argRegShift)
+        [0,0,0,1,_, _,_] -> return $ Just (Eor,isFlags,argRegShift)
+        [0,0,1,0,_, _,_] -> return $ Just (Sub,isFlags,argRegShift)
+        [0,0,1,1,_, _,_] -> return $ Just (Rsb,isFlags,argRegShift)
+        [0,1,0,0,_, _,_] -> return $ Just (Add,isFlags,argRegShift)
+        [0,1,0,1,_, _,_] -> return $ Just (Adc,isFlags,argRegShift)
+        [0,1,1,0,_, _,_] -> return $ Just (Sbc,isFlags,argRegShift)
+        [0,1,1,1,_, _,_] -> return $ Just (Rsc,isFlags,argRegShift)
+        [1,0,0,0,1, _,_] -> return $ Just (Tst,True,argRegShiftTest)
+        [1,0,0,1,1, _,_] -> return $ Just (Teq,True,argRegShiftTest)
+        [1,0,1,0,1, _,_] -> return $ Just (Cmp,True,argRegShiftTest)
+        [1,0,1,1,1, _,_] -> return $ Just (Cmn,True,argRegShiftTest)
+        [1,1,0,0,_, _,_] -> return $ Just (Orr,isFlags,argShiftShift)
+        [1,1,0,1,_, 0,0] -> return $ Just (Lsl,isFlags,argShiftShift)
+        [1,1,0,1,_, 0,1] -> return $ Just (Lsr,isFlags,argShiftShift)
+        [1,1,0,1,_, 1,0] -> return $ Just (Asr,isFlags,argShiftShift)
+        [1,1,0,1,_, 1,1] -> return $ Just (Ror,isFlags,argShiftShift)
+        [1,1,1,0,_, _,_] -> return $ Just (Bic,isFlags,argRegShift)
+        [1,1,0,1,_, _,_] -> return $ Just (Mvn,isFlags,argMvn)
+
 parseDataProcessingImmediate :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
 parseDataProcessingImmediate = do
     bitsField   <- instructionArrayBits [24,23,22,21,20,19,18,17,16]
     isFlags     <- (`testBit` 0) <$> instructionBits 20 1
+    argImmMvn   <- parseImmediateMvnArgument
     argImmMov   <- parseImmediateMovArgument
     argImm      <- parseImmediateArgument
     argImmTest  <- parseImmediateTestArgument
@@ -326,7 +380,7 @@ parseDataProcessingImmediate = do
         [1,1,0,0,_, _,_,_,_]  -> return $ Just (Orr,isFlags,argImm)
         [1,1,0,1,_, _,_,_,_]  -> return $ Just (Movw,isFlags,argImmMov)
         [1,1,1,0,_, _,_,_,_]  -> return $ Just (Bic,isFlags,argImm)
-        [1,1,1,1,_, _,_,_,_]  -> return $ Just (Mvn,isFlags,argImm)
+        [1,1,1,1,_, _,_,_,_]  -> return $ Just (Mvn,isFlags,argImmMvn)
         otherwise -> return Nothing
 
 parseDataProcessingRegister :: ArmStreamState (Maybe (InstrClass, Bool, ArgumentsInstruction))
@@ -337,6 +391,7 @@ parseDataProcessingRegister = do
     argTest <- parseRegisterTestArgument
     argMov <- parseRegisterMovArgs
     argShift <- parseShiftArgument
+    argMvn <- parseRegisterShiftMvnArgument
     bitsField <- instructionArrayBits [24,23,22,21,20,6,5]
     case bitsField ++ [imm] of 
         [0,0,0,0,_, _,_, _] -> return $ Just (And,isFlags,argReg)
@@ -365,7 +420,7 @@ parseDataProcessingRegister = do
                 Just mov -> return $ Just (Rrx,isFlags,mov)
         [1,1,0,1,_, 1,1, _] -> return $ Just (Ror,isFlags,argShift)
         [1,1,1,0,_, _,_, _] -> return $ Just (Bic,isFlags,argReg)
-        [1,1,1,1,_, _,_, _] -> return $ Just (Mvn,isFlags,argReg)
+        [1,1,1,1,_, _,_, _] -> return $ Just (Mvn,isFlags,argMvn)
         otherwise -> return Nothing
         
 parseRegisterShiftArgument :: ArmStreamState ArgumentsInstruction
@@ -421,6 +476,13 @@ parseImmediateMovArgument = do
     regd <- parseRegister 12
     return $ ImmediateMovArgs regd imm
 
+parseImmediateMvnArgument :: ArmStreamState ArgumentsInstruction
+parseImmediateMvnArgument = do
+    imm <- instructionBits 0 8
+    rot <- (fromIntegral . (*2)) <$> instructionBits 8 4
+    regd <- parseRegister 12
+    return $ ImmediateMovArgs regd (imm `rotateR` rot)
+
 parseRegisterTestArgument :: ArmStreamState ArgumentsInstruction
 parseRegisterTestArgument = do
     regn <- parseRegister 16
@@ -428,6 +490,37 @@ parseRegisterTestArgument = do
     stype <- wordToSRType <$> instructionBits 5 2
     imm <- instructionBits 7 5
     return $ RegisterTestArgs regn regm stype imm
+
+parseRegisterMvnArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterMvnArgument = do
+    regd <- parseRegister 12
+    regm <- parseRegister 0
+    stype <- wordToSRType <$> instructionBits 5 2
+    imm <- instructionBits 7 5
+    return $ RegisterMvnArgs regd regm stype imm
+
+parseRegisterShiftTestArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterShiftTestArgument = do
+    regn <- parseRegister 16
+    regs <- parseRegister 8
+    regm <- parseRegister 0
+    stype <- wordToSRType <$> instructionBits 5 2
+    return $ RegisterShiftedTestArgs regn regs regm stype
+
+parseRegisterShiftMvnArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterShiftMvnArgument = do
+    regd <- parseRegister 12
+    regs <- parseRegister 8
+    regm <- parseRegister 0
+    stype <- wordToSRType <$> instructionBits 5 2
+    return $ RegisterShiftedMvnArgs regd regs regm stype
+
+parseRegisterShiftShiftArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterShiftShiftArgument = do
+    regd <- parseRegister 12
+    regm <- parseRegister 8
+    regn <- parseRegister 0
+    return $ RegisterShiftShiftedArgs regd regm regn
 
 parseBranchArgument :: ArmStreamState ArgumentsInstruction
 parseBranchArgument = (BranchArgs . (`shiftL` 2)) <$> instructionSignedExtendBits 0 24
