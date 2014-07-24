@@ -53,7 +53,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rm register
             SRType      -- ^ Shift type
             Bin.Word32  -- ^ Immediate value to shift
-    |   RegisterMovArgs 
+    |   RegisterToRegisterArgs 
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rm register
     |   RegisterMvnArgs
@@ -82,6 +82,11 @@ data ArgumentsInstruction =
             Bin.Word32  -- ^ Immediate value to shift
     |   BranchArgs
             Bin.Word32  -- ^ Immediate value to branch
+    |   BranchExchangeArgs
+            ArmRegister -- ^ The rm register
+    |   NoArgs          -- ^ Instruction with no argument
+    |   NullArgs        -- ^ For instruction that is not parsed
+
 {-- This is not used for the time being
     |   ImmediatePcArgs
             ArmRegister -- ^ The rd register
@@ -89,7 +94,7 @@ data ArgumentsInstruction =
 
 newtype Shift = Shift (SRType,Bin.Word32)
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Cmp | Cmn | Orr | Mov | Movw | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | B | Bl | Blx
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR
@@ -98,10 +103,12 @@ data ArmStream = ArmStream ByteString Bin.Word32
 
 type ArmStreamState a = State ArmStream a
 
+type ArmInstructionPart = Maybe (InstrClass,Bool,ArgumentsInstruction)
+
 instance Show ArgumentsInstruction where
     show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s" (show rd) (show rn) (show rm) (show $ Shift (st,n))
     show (RegisterShiftShiftedArgs rd rm rn) = printf "%s,%s,%s %s" (show rd) (show rn)
-    show (RegisterMovArgs rd rm) = printf "%s,%s" (show rd) (show rm)
+    show (RegisterToRegisterArgs rd rm) = printf "%s,%s" (show rd) (show rm)
     show (RegisterShiftedArgs rn rd rs rm st) = printf "%s,%s,%s %s %s" (show rd) (show rn) (show rm) (show st) (show rs)
     show (RegisterShiftedTestArgs rn rs rm st) = printf "%s,%s %s %s" (show rn) (show rm) (show st) (show rs)
     show (RegisterShiftedMvnArgs rd rs rm st) = printf "%s,%s %s %s" (show rd) (show rm) (show st) (show rs)
@@ -111,6 +118,9 @@ instance Show ArgumentsInstruction where
     show (RegisterMvnArgs rd rm st n) = printf "%s, %s %s" (show rd) (show rm) (show $ Shift (st,n))
     show (ShiftArgs rd rm n) = printf "%s, %s  #%d" (show rd) (show rm) n
     show (BranchArgs imm) = printf "<PC+%x>" imm
+    show (BranchExchangeArgs rm) = (show rm)
+    show NoArgs = ""
+    show NullArgs = "not parse args"
 
 instance Show Shift where
     show (Shift (_,0)) = ""
@@ -168,24 +178,6 @@ wordToSRType 0 = LSL
 wordToSRType 1 = LSR
 wordToSRType 2 = ASR
 wordToSRType 3 = ROR
-
-wordToDataClass :: Bin.Word32 -> InstrClass
-wordToDataClass 0 = And
-wordToDataClass 1 = Eor
-wordToDataClass 2 = Sub
-wordToDataClass 3 = Rsb
-wordToDataClass 4 = Add
-wordToDataClass 5 = Adc
-wordToDataClass 6 = Sbc
-wordToDataClass 7 = Rsc
-wordToDataClass 8 = Tst
-wordToDataClass 9 = Teq
-wordToDataClass 10 = Cmp
-wordToDataClass 11 = Cmn
-wordToDataClass 12 = Orr
-wordToDataClass 13 = Mov
-wordToDataClass 14 = Bic
-wordToDataClass 15 = Mvn
 
 nextArmInstruction :: ArmStreamState ()
 nextArmInstruction = do
@@ -246,7 +238,6 @@ parseInstructionClass = do
 parseArmInstruction :: ArmStreamState ArmInstr
 parseArmInstruction = do
     condition <- parseCond
-    inst <- instructionBits 0 32
     part <- case condition of
         Uncond -> parseUnconditional
         otherwise -> do
@@ -257,11 +248,11 @@ parseArmInstruction = do
                 Branch -> parseBranchAndBlockTransfer
                 Coprocessor -> return $ Nothing
     case part of
-        Just (cl,flags,arguments) -> return $ ArmInstr {code=inst, cond=condition, memonic=cl, isFlags=flags, args=arguments}
+        Just (cl,flags,arguments) -> ArmInstr <$> instructionBits 0 32 <*> parseCond <*> return cl <*> return flags <*> return  arguments
         Nothing -> return Undefined
 
 -- | Branch, branch with link and block data transfert
-parseBranchAndBlockTransfer :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseBranchAndBlockTransfer :: ArmStreamState ArmInstructionPart
 parseBranchAndBlockTransfer = do
     bitsField <- instructionArrayBits [25,24,23,22,21,20,15,19,18,17,16] 
     case bitsField of 
@@ -270,41 +261,71 @@ parseBranchAndBlockTransfer = do
         otherwise -> return Nothing
 
 -- | Instruction with condition set to unconditional excluding SIMD
-parseUnconditional :: ArmStreamState (Maybe (InstrClass, Bool,ArgumentsInstruction))
+parseUnconditional :: ArmStreamState ArmInstructionPart
 parseUnconditional = do
     bitsField <- instructionArrayBits [27,26,25,24,23,22,21,20,19,18,17,16,4]
     case bitsField of 
         [1,0,1,_,_,_,_,_, _,_,_,_, _] -> parseUncondBranch
         otherwise -> return Nothing
 
-parseBranch :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseBranch :: ArmStreamState ArmInstructionPart
 parseBranch = do
     args <- parseBranchArgument
     return $ Just (B,False,args)
 
-parseUncondBranch :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseUncondBranch :: ArmStreamState ArmInstructionPart
 parseUncondBranch = do
     args <- parseUncondBranchArgument
     return $ Just (Blx,False,args)
 
-parseBranchLink :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseBranchLink :: ArmStreamState ArmInstructionPart
 parseBranchLink = do
     args <- parseBranchArgument
-    return $ Just (Bl,False,args) 
+    return $ Just (Bl,False,args)  
 
-parseDataProcessing :: ArmStreamState (Maybe (InstrClass, Bool, ArgumentsInstruction))
+parseDataProcessing :: ArmStreamState ArmInstructionPart
 parseDataProcessing = do
     bitsField <- instructionArrayBits [25,24,23,22,21,20,7,6,5,4]
     case bitsField of
-        [0,_,_,_,_,_,     _,_,_,0] -> parseDataProcessingRegister
-        [0,_,_,_,_,op120, 0,_,_,1] -> parseDataProcessingRegisterShift
-        [1,1,0,0,0,0,     _,_,_,_] -> do
+        [0,1,0,_,_,0, 0,_,_,_] -> parseMiscellaneous
+        [0,1,0,_,_,0, 1,_,_,0] -> parseHalfwordMultiplyAcc
+        [0,1,0,_,_,0, _,_,_,_] -> return Nothing
+        [0,_,_,_,_,_, _,_,_,0] -> parseDataProcessingRegister
+        [0,_,_,_,_,_, 0,_,_,1] -> parseDataProcessingRegisterShift
+        [1,1,0,0,0,0, _,_,_,_] -> do
             args <- parseImmediateMov16Argument
             return $ Just (Movw, False, args)
-        [1,_,_,_,_,_,    _,_,_,_] -> parseDataProcessingImmediate
+        [1,_,_,_,_,_, _,_,_,_] -> parseDataProcessingImmediate
         otherwise -> return Nothing
 
-parseDataProcessingRegisterShift :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseHalfwordMultiplyAcc :: ArmStreamState ArmInstructionPart
+parseHalfwordMultiplyAcc = do 
+    bitsField <- instructionArrayBits [22,21,5]
+    case bitsField of 
+        [0,0,_] -> return Nothing
+        [0,1,0] -> return Nothing
+        [0,1,1] -> return Nothing
+        [1,0,_] -> return Nothing
+        [1,1,_] -> return Nothing
+
+parseMiscellaneous :: ArmStreamState ArmInstructionPart
+parseMiscellaneous = do
+    bitsField <- instructionArrayBits [6,5,4,9,22,21,19,18,17,16]
+    argBx <- parseBranchExchangeArgument
+    argReg <- parseRegisterToRegisterArgument 
+    case bitsField of 
+        [0,0,0, _, _,_, _,_,_,_] -> return $ Just (Msr,False,NullArgs)
+        [0,0,1, _, 0,1, _,_,_,_] -> return $ Just (Bx,False,argBx)
+        [0,0,1, _, 1,1, _,_,_,_] -> return $ Just (Clz,False,argReg)
+        [0,1,0, _, 0,1, _,_,_,_] -> return $ Just (Bxj,False,argBx)
+        [0,1,1, _, 0,1, _,_,_,_] -> return $ Just (Blx,False,argBx)
+        [1,1,0, _, 1,1, _,_,_,_] -> return $ Just (Eret,False,NoArgs)
+        [1,1,1, _, 0,1, _,_,_,_] -> return $ Just (Bkpt,False,NullArgs)
+        [1,1,1, _, 1,0, _,_,_,_] -> return $ Just (Hvc,False,NullArgs)
+        [1,1,1, _, 1,1, _,_,_,_] -> return $ Just (Smc,False,NullArgs)
+        otherwise -> return Nothing
+
+parseDataProcessingRegisterShift :: ArmStreamState ArmInstructionPart
 parseDataProcessingRegisterShift = do
     bitsField <- instructionArrayBits [24,23,22,21,20,6,5]
     isFlags     <- (`testBit` 0) <$> instructionBits 20 1
@@ -333,7 +354,7 @@ parseDataProcessingRegisterShift = do
         [1,1,1,0,_, _,_] -> return $ Just (Bic,isFlags,argRegShift)
         [1,1,0,1,_, _,_] -> return $ Just (Mvn,isFlags,argMvn)
 
-parseDataProcessingImmediate :: ArmStreamState (Maybe (InstrClass,Bool,ArgumentsInstruction))
+parseDataProcessingImmediate :: ArmStreamState ArmInstructionPart
 parseDataProcessingImmediate = do
     bitsField   <- instructionArrayBits [24,23,22,21,20,19,18,17,16]
     isFlags     <- (`testBit` 0) <$> instructionBits 20 1
@@ -364,13 +385,13 @@ parseDataProcessingImmediate = do
         [1,1,1,1,_, _,_,_,_]  -> return $ Just (Mvn,isFlags,argImmMvn)
         otherwise -> return Nothing
 
-parseDataProcessingRegister :: ArmStreamState (Maybe (InstrClass, Bool, ArgumentsInstruction))
+parseDataProcessingRegister :: ArmStreamState ArmInstructionPart
 parseDataProcessingRegister = do
     imm <- instructionBits 7 5
     isFlags  <- (`testBit` 0) <$> instructionBits 20 1
     argReg <- parseRegisterArgument
     argTest <- parseRegisterTestArgument
-    argMov <- parseRegisterMovArgs
+    argMov <- parseRegisterMovArgument
     argShift <- parseShiftArgument
     argMvn <- parseRegisterShiftMvnArgument
     bitsField <- instructionArrayBits [24,23,22,21,20,6,5]
@@ -422,14 +443,21 @@ parseRegisterArgument = do
     imm     <- instructionBits 7 5
     return $ RegisterArgs regn regd regm stype imm
 
-parseRegisterMovArgs :: ArmStreamState (Maybe ArgumentsInstruction)
-parseRegisterMovArgs = do
+parseRegisterMovArgument :: ArmStreamState (Maybe ArgumentsInstruction)
+parseRegisterMovArgument = do
     regd <- parseRegister 12
     regm <- parseRegister 0
     assert <- instructionBits 4 8
     case assert of
-        0 -> return $ Just $ RegisterMovArgs regd regm
+        0 -> return $ Just $ RegisterToRegisterArgs regd regm
         _ -> return Nothing
+
+parseRegisterToRegisterArgument :: ArmStreamState ArgumentsInstruction
+parseRegisterToRegisterArgument = do
+    regd <- parseRegister 12
+    regm <- parseRegister 0
+    return $ RegisterToRegisterArgs regd regm
+    
     
 parseImmediateArgument :: ArmStreamState ArgumentsInstruction
 parseImmediateArgument = do 
@@ -510,6 +538,9 @@ parseUncondBranchArgument :: ArmStreamState ArgumentsInstruction
 parseUncondBranchArgument = do
     h <- instructionBits 24 1
     (BranchArgs . (`shift` 1) . (+h) . (`shiftL` 1)) <$> instructionSignedExtendBits 0 24
+
+parseBranchExchangeArgument :: ArmStreamState ArgumentsInstruction
+parseBranchExchangeArgument = BranchExchangeArgs <$> parseRegister 0
 
 parseShiftArgument :: ArmStreamState ArgumentsInstruction
 parseShiftArgument = do
