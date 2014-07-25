@@ -1,5 +1,6 @@
 module ArmDecode (
-    ArmInstr, parseStream,
+    parseStream,
+    ArgumentsInstruction(..), ArmInstr(..), Cond(..), InstrClass(..), ArmStream(..), ArmStreamState(..)
 ) where
 
 --import qualified Data.Binary.Bits.Get as Bin
