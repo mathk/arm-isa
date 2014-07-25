@@ -85,6 +85,37 @@ data ArgumentsInstruction =
             Bin.Word32  -- ^ Immediate value to branch
     |   BranchExchangeArgs
             ArmRegister -- ^ The rm register
+    |   MultiplyAccArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The ra register
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rn register
+            Bool        -- ^ If we take the high bits of rm
+            Bool        -- ^ If we take the high bits of rn
+    |   MultiplyAccWordArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The ra register
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rn register
+            Bool        -- ^ If we take the high bits of rm
+    |   MultiplyHalfArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rn register
+            Bool        -- ^ If we take the high bits of rm
+    |   MultiplyAccLongArgs
+            ArmRegister -- ^ The rdhi register
+            ArmRegister -- ^ The rdlo register
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rn register
+            Bool        -- ^ If we take the high bits of rm
+            Bool        -- ^ If we take the high bits of rn
+    |   MultiplyArgs
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rn register
+            Bool        -- ^ If we take the high bits of rm
+            Bool        -- ^ If we take the high bits of rn
     |   NoArgs          -- ^ Instruction with no argument
     |   NullArgs        -- ^ For instruction that is not parsed
 
@@ -95,7 +126,7 @@ data ArgumentsInstruction =
 
 newtype Shift = Shift (SRType,Bin.Word32)
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR
@@ -192,6 +223,9 @@ instructionBits off count = do
     (ArmStream _ currentInst) <- get
     return $ (currentInst `shiftR` off) .&. ((2 ^ count) - 1)
 
+instructionFlag :: Int -> ArmStreamState Bool
+instructionFlag off = (`testBit` 0) <$> instructionBits off 1
+
 instructionSignedExtendBits :: Int -> Int -> ArmStreamState Bin.Word32
 instructionSignedExtendBits off count = do
     sig <- instructionBits (count - 1) 1
@@ -201,6 +235,9 @@ instructionSignedExtendBits off count = do
 
 instructionArrayBits :: [Int] -> ArmStreamState [Bin.Word32]
 instructionArrayBits = sequence . (fmap (`instructionBits` 1))
+
+justArgumentPart :: InstrClass -> Bool -> ArgumentsInstruction -> ArmInstructionPart
+justArgumentPart cl flag instr = Just (cl,flag,instr)
 
 parseRegister :: Int -> ArmStreamState ArmRegister
 parseRegister off = do 
@@ -303,11 +340,11 @@ parseHalfwordMultiplyAcc :: ArmStreamState ArmInstructionPart
 parseHalfwordMultiplyAcc = do 
     bitsField <- instructionArrayBits [22,21,5]
     case bitsField of 
-        [0,0,_] -> return Nothing
-        [0,1,0] -> return Nothing
-        [0,1,1] -> return Nothing
-        [1,0,_] -> return Nothing
-        [1,1,_] -> return Nothing
+        [0,0,_] -> justArgumentPart Smla    False <$> parseSignMultiplyHalfAccArguement
+        [0,1,0] -> justArgumentPart Smlaw   False <$> parseSignMultiplyWordHalfAccArgument
+        [0,1,1] -> justArgumentPart Smulw   False <$> parseSignMultiplyWordHalfArgument
+        [1,0,_] -> justArgumentPart Smlal   False <$> parseSignMultiplyLongAccArgument
+        [1,1,_] -> justArgumentPart Smul    False <$> parseSignMultiplyHalfArgument
 
 parseMiscellaneous :: ArmStreamState ArmInstructionPart
 parseMiscellaneous = do
@@ -532,6 +569,52 @@ parseRegisterShiftShiftArgument = do
     regn <- parseRegister 0
     return $ RegisterShiftShiftedArgs regd regm regn
 
+parseSignMultiplyHalfAccArguement :: ArmStreamState ArgumentsInstruction
+parseSignMultiplyHalfAccArguement =
+    MultiplyAccArgs <$> 
+        parseRegister 16 <*> 
+        parseRegister 12 <*>
+        parseRegister 8 <*>
+        parseRegister 0 <*>
+        instructionFlag 6 <*>
+        instructionFlag 5
+
+parseSignMultiplyWordHalfAccArgument :: ArmStreamState ArgumentsInstruction
+parseSignMultiplyWordHalfAccArgument =
+    MultiplyAccWordArgs <$>
+        parseRegister 16 <*> 
+        parseRegister 12 <*>
+        parseRegister 8 <*>
+        parseRegister 0 <*>
+        instructionFlag 6
+
+parseSignMultiplyWordHalfArgument :: ArmStreamState ArgumentsInstruction
+parseSignMultiplyWordHalfArgument =
+    MultiplyHalfArgs <$>
+        parseRegister 16 <*> 
+        parseRegister 8 <*>
+        parseRegister 0 <*>
+        instructionFlag 6
+
+parseSignMultiplyLongAccArgument :: ArmStreamState ArgumentsInstruction
+parseSignMultiplyLongAccArgument = do
+    MultiplyAccLongArgs <$>
+        parseRegister 16 <*> 
+        parseRegister 12 <*>
+        parseRegister 8 <*>
+        parseRegister 0 <*>
+        instructionFlag 6 <*>
+        instructionFlag 5
+
+parseSignMultiplyHalfArgument :: ArmStreamState ArgumentsInstruction
+parseSignMultiplyHalfArgument = 
+    MultiplyArgs <$>
+        parseRegister 16 <*> 
+        parseRegister 8 <*>
+        parseRegister 0 <*>
+        instructionFlag 6 <*>
+        instructionFlag 5
+
 parseBranchArgument :: ArmStreamState ArgumentsInstruction
 parseBranchArgument = (BranchArgs . (`shiftL` 2)) <$> instructionSignedExtendBits 0 24
 
@@ -558,4 +641,4 @@ parseInstrStream n = do
     (i:) <$> parseInstrStream (n-1)
 
 parseStream :: ByteString -> [ArmInstr]
-parseStream s = fst (runState (parseInstrStream 30) (ArmStream s 0))
+parseStream s = fst (runState (parseInstrStream 50) (ArmStream s 0))
