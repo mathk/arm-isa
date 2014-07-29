@@ -112,11 +112,26 @@ parseHalfThumbInstruction = do
     case bitsField of
         [0,0,_,_,_,_] -> parseShiftImmediate
         [0,1,0,0,0,0] -> parseDataProcessing
+        [0,1,0,0,0,1] -> parseSpecialDataInstruction
         otherwise     -> return NotParsed
 
 -- | Parse a thumb instruction that have a 32 bit length
 parseFullThumbInstruction :: ThumbStreamState ArmInstr
 parseFullThumbInstruction = return NotParsed
+
+parseSpecialDataInstruction :: ThumbStreamState ArmInstr
+parseSpecialDataInstruction = do
+    bitsField <- instructionArrayBits [9,8,7,6]
+    case bitsField of
+        [0,0,0,0] -> partialInstruction Add <*> parseSpecialRegsiterT1Args   
+        [0,0,0,1] -> partialInstruction Add <*> parseSpecialRegsiterT2Args
+        [0,0,1,_] -> partialInstruction Add <*> parseSpecialRegsiterT2Args 
+        [0,1,_,_] -> partialInstruction Asr <*> parseDataRegisterT1Args   
+        [1,0,0,0] -> partialInstruction Tst <*> parseDataRegisterTestT1Args  
+        [1,0,0,1] -> partialInstruction Rsb <*> parseImmediateT1Arg  
+        [1,0,1,_] -> partialInstruction Cmp <*> parseDataRegisterTestT1Args   
+        [1,1,0,_] -> partialInstruction Orr <*> parseDataRegisterT1Args   
+        [1,1,1,_] -> partialInstruction Bic <*> parseDataRegisterT1Args   
 
 parseDataProcessing :: ThumbStreamState ArmInstr
 parseDataProcessing = do
@@ -138,7 +153,6 @@ parseDataProcessing = do
         [1,1,0,1] -> partialInstruction Mul <*> parseDataRegisterT1Args   
         [1,1,1,0] -> partialInstruction Bic <*> parseDataRegisterT1Args   
         [1,1,1,1] -> partialInstruction And <*> parseDataRegisterT1Args   
-        
         otherwise -> return Undefined
 
 parseShiftImmediate :: ThumbStreamState ArmInstr
@@ -153,26 +167,16 @@ parseShiftImmediate = do
                             (pure $ RegisterToRegisterArgs rd rm)
                 otherwise -> partialInstruction Lsl <*>
                             pure shiftArg
-        [0,0,1,_,_] -> partialInstruction Lsr <*>
-                            parseShiftImmediateT1Args LSR
-        [0,1,0,_,_] -> partialInstruction Asr <*>
-                            parseShiftImmediateT1Args ASR
-        [0,1,1,0,0] -> partialInstruction Add <*>
-                            parseRegisterT1Args
-        [0,1,1,0,1] -> partialInstruction Sub <*>
-                            parseRegisterT1Args
-        [0,1,1,1,0] -> partialInstruction Add <*>
-                            parseImmediateT1Args
-        [0,1,1,1,1] -> partialInstruction Sub <*>
-                            parseImmediateT1Args
-        [1,0,0,_,_] -> partialInstruction Mov <*>
-                            parseImmediateMovT1Args
-        [1,0,1,_,_] -> partialInstruction Cmp <*>
-                            parseImmediateTestT1Args
-        [1,1,0,_,_] -> partialInstruction Add <*>
-                            parseImmediate8T1Args
-        [1,1,1,_,_] -> partialInstruction Sub <*>
-                            parseImmediate8T1Args
+        [0,0,1,_,_] -> partialInstruction Lsr <*> parseShiftImmediateT1Args LSR
+        [0,1,0,_,_] -> partialInstruction Asr <*> parseShiftImmediateT1Args ASR
+        [0,1,1,0,0] -> partialInstruction Add <*> parseRegisterT1Args
+        [0,1,1,0,1] -> partialInstruction Sub <*> parseRegisterT1Args
+        [0,1,1,1,0] -> partialInstruction Add <*> parseImmediateT1Args
+        [0,1,1,1,1] -> partialInstruction Sub <*> parseImmediateT1Args
+        [1,0,0,_,_] -> partialInstruction Mov <*> parseImmediateMovT1Args
+        [1,0,1,_,_] -> partialInstruction Cmp <*> parseImmediateTestT1Args
+        [1,1,0,_,_] -> partialInstruction Add <*> parseImmediate8T1Args
+        [1,1,1,_,_] -> partialInstruction Sub <*>parseImmediate8T1Args
         otherwise -> return Undefined
 
 partialInstruction :: InstrClass -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
@@ -238,6 +242,27 @@ parseImmediateT1Arg :: ThumbStreamState ArgumentsInstruction
 parseImmediateT1Arg = ImmediateArgs <$>
         parseThumbRegister 3 <*>
         parseThumbRegister 0 <*>
+        pure 0
+
+
+parseSpecialRegsiterT1Args :: ThumbStreamState ArgumentsInstruction
+parseSpecialRegsiterT1Args = RegisterArgs <$> 
+        parseThumbRegister 3 <*>
+        parseThumbRegister 0 <*>
+        parseThumbRegister 6 <*>
+        -- There is no shift in T1 encoding. So it will be ignore.
+        pure LSL <*>
+        pure 0
+
+parseSpecialRegsiterT2Args :: ThumbStreamState ArgumentsInstruction
+parseSpecialRegsiterT2Args = do
+    dn <- (+) <$> ((8*) <$> instructionBits 7 1) <*> instructionBits 0 3
+    RegisterArgs <$> 
+        pure $ wordToRegister dn <*>
+        pure $ wordToRegister dn <*>
+        parseRegister 3 <*>
+        -- There is no shift in T1 encoding. So it will be ignore.
+        pure LSL <*>
         pure 0
 
 parseStream :: ByteString -> [ArmInstr]
