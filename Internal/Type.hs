@@ -1,5 +1,5 @@
 module Internal.Type (
-    wordToSRType, wordToRegister, instructionSignedExtendBits, instructionArrayBits, instructionFlag,
+    wordToSRType, wordToRegister, instructionSignedExtendBits, instructionArrayBits, instructionFlag, parseRegister, parseInstrStream, decodeImmediateShift,
     InstructionStreamState(..),
     ArmRegister(..),
     ArmInstr(..),
@@ -7,6 +7,7 @@ module Internal.Type (
     Cond(..),
     InstrClass(..),
     SRType(..),
+    Shift(..),
 ) where
 
 import Data.Binary
@@ -16,6 +17,8 @@ import Data.Bits
 
 class (Functor m, Monad m) => InstructionStreamState m where
     instructionBits :: Int -> Int -> m Word32
+    parseInstruction :: m ArmInstr
+    nextInstruction :: m ()
 
 data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | FP | R12 | SP | LR | PC
     deriving (Show)
@@ -55,7 +58,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd regsiter
             ArmRegister -- ^ The rm register
             SRType      -- ^ Shift type
-            Word32  -- ^ Immediate value to shift
+            Word32      -- ^ Immediate value to shift
     |   RegisterToRegisterArgs 
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rm register
@@ -126,13 +129,13 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul
     deriving (Show)
 
-data SRType = ASR | LSL | LSR | ROR
+data SRType = ASR | LSL | LSR | ROR | RRX
 
 instance Show ArgumentsInstruction where
-    show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s" (show rd) (show rn) (show rm) (show $ Shift (st,n))
+    show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s" (show rd) (show rn) (show rm) (show $ decodeImmediateShift st n)
     show (RegisterShiftShiftedArgs rd rm rn) = printf "%s,%s,%s %s" (show rd) (show rn)
     show (RegisterToRegisterArgs rd rm) = printf "%s,%s" (show rd) (show rm)
     show (RegisterShiftedArgs rn rd rs rm st) = printf "%s,%s,%s %s %s" (show rd) (show rn) (show rm) (show st) (show rs)
@@ -140,8 +143,9 @@ instance Show ArgumentsInstruction where
     show (RegisterShiftedMvnArgs rd rs rm st) = printf "%s,%s %s %s" (show rd) (show rm) (show st) (show rs)
     show (ImmediateArgs rn rd imm) = printf "%s,%s, #%d" (show rd) (show rn) imm
     show (ImmediateMovArgs rd imm) = printf "%s, #%d" (show rd) imm
-    show (RegisterTestArgs rn rm st n) = printf "%s, %s %s" (show rn) (show rm) (show $ Shift (st,n))
-    show (RegisterMvnArgs rd rm st n) = printf "%s, %s %s" (show rd) (show rm) (show $ Shift (st,n))
+    show (ImmediateTestArgs rd imm) = printf "%s, #%d" (show rd) imm
+    show (RegisterTestArgs rn rm st n) = printf "%s, %s %s" (show rn) (show rm) (show $ decodeImmediateShift st n)
+    show (RegisterMvnArgs rd rm st n) = printf "%s, %s %s" (show rd) (show rm) (show $ decodeImmediateShift st n)
     show (ShiftArgs rd rm n) = printf "%s, %s  #%d" (show rd) (show rm) n
     show (BranchArgs imm) = printf "<PC+%x>" imm
     show (BranchExchangeArgs rm) = (show rm)
@@ -222,4 +226,20 @@ instructionSignedExtendBits off count = do
 
 instructionArrayBits :: InstructionStreamState m => [Int] -> m [Word32]
 instructionArrayBits = sequence . (fmap (`instructionBits` 1))
+
+parseInstrStream :: InstructionStreamState m =>  Int -> m [ArmInstr]
+parseInstrStream 0 = return []
+parseInstrStream n = do
+    nextInstruction 
+    i <- parseInstruction
+    (i:) <$> parseInstrStream (n-1)
+
+decodeImmediateShift :: SRType -> Word32 -> Shift
+decodeImmediateShift LSL imm    = Shift (LSL,imm)
+decodeImmediateShift LSR 0      = Shift (LSR,32)
+decodeImmediateShift LSR imm    = Shift (LSR,imm)
+decodeImmediateShift ASR 0      = Shift (ASR,32)
+decodeImmediateShift ASR imm    = Shift (ASR,imm)
+decodeImmediateShift ROR 0      = Shift (RRX,1)
+decodeImmediateShift ROR imm    = Shift (ROR,imm)
 

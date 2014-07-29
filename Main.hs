@@ -1,5 +1,6 @@
 import qualified ElfParser as ELF
 import qualified ArmDecode as Arm
+import qualified ThumbDecode as Thumb
 import qualified Data.ByteString as B
 import qualified Graphics.UI.Threepenny as UI
 import System.Environment
@@ -144,7 +145,7 @@ displayElfCanvas info = do
 displayElfTextSection :: ELF.ELFInfo -> B.ByteString -> [UI Element]
 displayElfTextSection info s =
     case ELF.parse (ELF.getSectionContent info ".text") s of
-        Right stream -> map toUi (Arm.parseStream stream)
+        Right stream -> map toUi (Thumb.parseStream stream)
       where toUi armInst = UI.p # set UI.text (show armInst)
 
 normalizeY :: Int -> Int -> Double

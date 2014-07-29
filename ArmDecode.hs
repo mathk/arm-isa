@@ -27,6 +27,8 @@ instance InstructionStreamState (State ArmStream) where
     instructionBits off count = do
         (ArmStream _ currentInst) <- get
         return $ (currentInst `shiftR` off) .&. ((2 ^ count) - 1)
+    nextInstruction = nextArmInstruction
+    parseInstruction = parseArmInstruction
 
 nextArmInstruction :: ArmStreamState ()
 nextArmInstruction = do
@@ -224,7 +226,6 @@ parseDataProcessingRegister = do
     argReg <- parseRegisterArgument
     argTest <- parseRegisterTestArgument
     argMov <- parseRegisterMovArgument
-    argShift <- parseShiftArgument
     argMvn <- parseRegisterShiftMvnArgument
     bitsField <- instructionArrayBits [24,23,22,21,20,6,5]
     case bitsField ++ [imm] of 
@@ -245,14 +246,15 @@ parseDataProcessingRegister = do
             case argMov of
                 Nothing -> return Nothing
                 Just mov -> return $ Just (Mov,isFlags,mov)
-        [1,1,0,1,_, 0,0, _] -> return $ Just (Lsl,isFlags,argShift)
-        [1,1,0,1,_, 0,1, _] -> return $ Just (Lsr,isFlags,argShift)
-        [1,1,0,1,_, 1,0, _] -> return $ Just (Asr,isFlags,argShift)
+        [1,1,0,1,_, 0,0, _] -> justArgumentPart Lsl isFlags <$> parseShiftArgument LSL
+        [1,1,0,1,_, 0,1, _] -> justArgumentPart Lsr isFlags <$> parseShiftArgument LSR
+        [1,1,0,1,_, 1,0, _] -> justArgumentPart Asr isFlags <$> parseShiftArgument ASR
+        -- TODO: Can we use the parseShiftArgument instead?
         [1,1,0,1,_, 1,1, 0] -> do
             case argMov of
                 Nothing -> return Nothing
                 Just mov -> return $ Just (Rrx,isFlags,mov)
-        [1,1,0,1,_, 1,1, _] -> return $ Just (Ror,isFlags,argShift)
+        [1,1,0,1,_, 1,1, _] -> justArgumentPart Ror isFlags <$> parseShiftArgument ROR
         [1,1,1,0,_, _,_, _] -> return $ Just (Bic,isFlags,argReg)
         [1,1,1,1,_, _,_, _] -> return $ Just (Mvn,isFlags,argMvn)
         otherwise -> return Nothing
@@ -420,19 +422,12 @@ parseUncondBranchArgument = do
 parseBranchExchangeArgument :: ArmStreamState ArgumentsInstruction
 parseBranchExchangeArgument = BranchExchangeArgs <$> parseRegister 0
 
-parseShiftArgument :: ArmStreamState ArgumentsInstruction
-parseShiftArgument = do
+parseShiftArgument :: SRType -> ArmStreamState ArgumentsInstruction
+parseShiftArgument st = do
     regd <- parseRegister 12
     regm <- parseRegister 0
-    imm     <- instructionBits 7 5
+    Shift (st,imm)     <- decodeImmediateShift st <$> instructionBits 7 5
     return $ ShiftArgs regd regm imm
-
-parseInstrStream :: Int -> ArmStreamState [ArmInstr]
-parseInstrStream 0 = return []
-parseInstrStream n = do
-    nextArmInstruction 
-    i <- parseArmInstruction
-    (i:) <$> parseInstrStream (n-1)
 
 parseStream :: ByteString -> [ArmInstr]
 parseStream s = fst (runState (parseInstrStream 50) (ArmStream s 0))
