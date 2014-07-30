@@ -41,25 +41,7 @@ justArgumentPart :: InstrClass -> Bool -> ArgumentsInstruction -> ArmInstruction
 justArgumentPart cl flag instr = Just (cl,flag,instr)
 
 parseCond :: ArmStreamState Cond
-parseCond = do
-    cond <- instructionBits 28 4
-    case cond of
-        0 -> return CondEQ
-        1 -> return CondNE
-        2 -> return CondCS
-        3 -> return CondCC
-        4 -> return CondMI
-        5 -> return CondPL
-        6 -> return CondVS
-        7 -> return CondVC
-        8 -> return CondHI
-        9 -> return CondLS
-        10 -> return CondGE
-        11 -> return CondLT
-        12 -> return CondGT
-        13 -> return CondLE
-        14 -> return CondAL
-        15 -> return Uncond
+parseCond = parseCondAt 28
 
 parseInstructionClass :: ArmStreamState ArmInstrClass
 parseInstructionClass = do

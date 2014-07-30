@@ -1,5 +1,5 @@
 module Internal.Type (
-    wordToSRType, wordToRegister, instructionSignedExtendBits, instructionArrayBits, instructionFlag, parseRegister, parseInstrStream, decodeImmediateShift,
+    wordToSRType, wordToRegister, instructionSignedExtendBits, instructionArrayBits, instructionFlag, parseRegister, parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList
     InstructionStreamState(..),
     ArmRegister(..),
     ArmInstr(..),
@@ -66,30 +66,33 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rm register
             SRType      -- ^ Shift type
-            Word32  -- ^ Immediate value to shift
+            Word32      -- ^ Immediate value to shift
     |   ImmediateArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rd register
-            Word32  -- ^ Immediate value
+            Word32      -- ^ Immediate value
     |   ImmediateMovArgs
             ArmRegister -- ^ The rd register
-            Word32  -- ^ Immediate value
+            Word32      -- ^ Immediate value
     |   ImmediateTestArgs
             ArmRegister -- ^ The rn register
-            Word32  -- ^ The immediate value
+            Word32      -- ^ The immediate value
     |   RegisterTestArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rm register
             SRType      -- ^ Shift type
-            Word32  -- ^ Immediate value to shift
+            Word32      -- ^ Immediate value to shift
     |   ShiftArgs
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rm register
-            Word32  -- ^ Immediate value to shift
+            Word32      -- ^ Immediate value to shift
     |   BranchArgs
-            Word32  -- ^ Immediate value to branch
+            Word32      -- ^ Immediate value to branch
     |   BranchExchangeArgs
             ArmRegister -- ^ The rm register
+    |   CompareBranchArgs
+            ArmRegister -- ^ The rn register
+            Word32      -- ^ The value to branch to
     |   MultiplyAccArgs
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The ra register
@@ -121,6 +124,21 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rn register
             Bool        -- ^ If we take the high bits of rm
             Bool        -- ^ If we take the high bits of rn
+    |   LoadRegisterArgs
+            ArmRegister -- ^ The rt register
+            Word32      -- ^ The immediate value to fetch
+    |   LoadStoreRegisterArgs
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rt register
+    |   LoadStoreImmediateArgs
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rt register
+            Word32      -- ^ The immediate value to store or load
+    |   ExtractArgs
+            ArmRegister -- ^ The rm register
+            ArmRegister -- ^ The rd register
+            Word32      -- ^ The rotation
     |   NoArgs          -- ^ Instruction with no argument
     |   NullArgs        -- ^ For instruction that is not parsed
 
@@ -129,7 +147,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
@@ -149,6 +167,12 @@ instance Show ArgumentsInstruction where
     show (ShiftArgs rd rm n) = printf "%s, %s  #%d" (show rd) (show rm) n
     show (BranchArgs imm) = printf "<PC+%x>" imm
     show (BranchExchangeArgs rm) = (show rm)
+    show (LoadRegisterArgs rt imm) = printf "%s, #%d" (show rt) imm
+    show (LoadStoreRegisterArgs rm rn rt) = printf "%s, [%s,%s]" (show rt) (show rn) (show rm)
+    show (LoadStoreImmediateArgs rn rt imm) = printf "%s, [%s, #%d]" (show rt) (show rn) imm
+    show (ExtractArgs rm rd 0) = printf "%s, %s" (show rd) (show rm)
+    show (ExtractArgs rm rd rot) = printf "%s, %s, ROR #%d" (show rd) (show rm) rot
+    show (CompareBranchArgs rn imm) = printf "%s, <PC+%x>" (show rn) imm
     show NoArgs = ""
     show NullArgs = "not parse args"
 
@@ -243,3 +267,29 @@ decodeImmediateShift ASR imm    = Shift (ASR,imm)
 decodeImmediateShift ROR 0      = Shift (RRX,1)
 decodeImmediateShift ROR imm    = Shift (ROR,imm)
 
+
+parseCondAt :: InstructionStreamState m => Int -> m Cond
+parseCondAt off = do
+    cond <- instructionBits off 4
+    case cond of
+        0 -> return CondEQ
+        1 -> return CondNE
+        2 -> return CondCS
+        3 -> return CondCC
+        4 -> return CondMI
+        5 -> return CondPL
+        6 -> return CondVS
+        7 -> return CondVC
+        8 -> return CondHI
+        9 -> return CondLS
+        10 -> return CondGE
+        11 -> return CondLT
+        12 -> return CondGT
+        13 -> return CondLE
+        14 -> return CondAL
+        15 -> return Uncond
+
+decodeRegisterList :: [Word32] -> [ArmRegister]
+decodeRegisterList = fst . (foldr regselect ([],0))
+    where regselect 0 (r,i) = (r,i+1)
+          regselect 1 (r,i) = ((wordToRegister i):r,i+1)
