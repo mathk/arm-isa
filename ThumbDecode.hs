@@ -111,7 +111,7 @@ parseHalfThumbInstruction = do
     bitsField <- instructionArrayBits [15,14,13,12,11,10]
     case bitsField of
         [0,0,_,_,_,_] -> parseShiftImmediate
-        [0,1,0,0,0,0] -> parseDataProcessing
+        [0,1,0,0,0,0] -> parseHalfDataProcessing
         [0,1,0,0,0,1] -> parseSpecialDataInstruction
         [0,1,0,0,1,_] -> partialInstruction Ldr <*> parseLoadRegisterArgs
         [0,1,0,1,_,_] -> parseLoadStoreSingleDataItem
@@ -126,7 +126,17 @@ parseHalfThumbInstruction = do
 
 -- | Parse a thumb instruction that have a 32 bit length
 parseFullThumbInstruction :: ThumbStreamState ArmInstr
-parseFullThumbInstruction = return NotParsed
+parseFullThumbInstruction = do
+    bitsField <- instructionArrayBits (map (+16) [12,11,10,9,8,7,6,5,4]) ++ [15]
+    case bitsField of
+        [0,1 0,1,_,_,_,_,_, _] -> parseDataProcessingRegsiter
+        otherwise -> Undefined
+
+
+parseDataProcessingRegister :: ThumbStreamState ArmInstr
+parseDataProcessingRegister = do
+    bitsField <- instructionArrayBits (map (+16) [8,7,6,5,3,2,1,0]) ++ [11,10,9,8]
+
 
 {------------------------------------------------------------------------------
  - Docoding table for 16 bit thumb instruction
@@ -196,8 +206,8 @@ parseSpecialDataInstruction = do
         [1,1,1,_] -> partialInstruction Blx <*> parseSpecialBranchRegisterT1Args
         otherwise -> return Undefined
 
-parseDataProcessing :: ThumbStreamState ArmInstr
-parseDataProcessing = do
+parseHalfDataProcessing :: ThumbStreamState ArmInstr
+parseHalfDataProcessing = do
     bitsField <- instructionArrayBits [9,8,7,6]
     case bitsField of
         [0,0,0,0] -> partialInstruction And <*> parseDataRegisterT1Args   
