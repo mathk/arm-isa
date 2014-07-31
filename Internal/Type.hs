@@ -1,5 +1,8 @@
 module Internal.Type (
-    wordToSRType, wordToRegister, instructionSignedExtendBits, instructionArrayBits, instructionFlag, parseRegister, parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList,
+    wordToSRType, wordToRegister, instructionSignedExtendBits, 
+    instructionArrayBits, instructionFlag, parseRegister, 
+    parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList,
+    wordToEndianState,
     InstructionStreamState(..),
     ArmRegister(..),
     ArmInstr(..),
@@ -11,6 +14,7 @@ module Internal.Type (
 ) where
 
 import Data.Binary
+import Data.List
 import Text.Printf
 import Control.Applicative
 import Data.Bits
@@ -29,6 +33,8 @@ data ArmInstr =
         | Undefined
 
 newtype Shift = Shift (SRType, Word32)
+
+data EndianState = BE | LE
 
 data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondVC | CondHI | CondLS | CondGE | CondLT | CondGT | CondLE | CondAL | Uncond
 
@@ -139,6 +145,21 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rm register
             ArmRegister -- ^ The rd register
             Word32      -- ^ The rotation
+    |   LoadAndStoreRegisterListArgs -- ^ For stm/ldm
+            ArmRegister -- ^ The rn register
+            Bool        -- ^ Store or load way back
+            [ArmRegister] -- ^ The list of register
+    |   RegisterListArgs -- ^ For pop/push
+            [ArmRegister] -- ^ The list of register
+    |   SettingEndiannessArgs
+            EndianState -- ^ BE or LE
+    |   ChangeProcessorStateArgs
+            Bool        -- ^ True interupt enabled
+            Bool        -- ^ Affect the A flag
+            Bool        -- ^ Affect the I flag
+            Bool        -- ^ Affect the F flag
+            Bool        -- ^ True the mode is changed
+            Word32      -- ^ The number of mode to change
     |   NoArgs          -- ^ Instruction with no argument
     |   NullArgs        -- ^ For instruction that is not parsed
 
@@ -147,7 +168,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
@@ -173,6 +194,20 @@ instance Show ArgumentsInstruction where
     show (ExtractArgs rm rd 0) = printf "%s, %s" (show rd) (show rm)
     show (ExtractArgs rm rd rot) = printf "%s, %s, ROR #%d" (show rd) (show rm) rot
     show (CompareBranchArgs rn imm) = printf "%s, <PC+%x>" (show rn) imm
+    show (RegisterListArgs list) = printf "{%s}" (intercalate ", " (map show list))
+    show (ChangeProcessorStateArgs effect a i f chmode mode) = printf "%s %s%s" (showeffect effect) (showflag [a,i,f]) (showmode chmode mode)
+        where 
+            showeffect True = "ie"
+            showeffect False = "id"
+            selectflag True text = text
+            selectflag False text = ""
+            showflag lst = intercalate "," (filter (not . null) (zipWith selectflag lst ["A","I","F"]))
+            showmode False _ = ""
+            showmode True mode = printf ", #%d" mode
+    show (LoadAndStoreRegisterListArgs rn wback reglist) = printf "%s%s %s" (show rn) (showwback wback) (intercalate ", " (map show reglist))
+        where 
+            showwback True = "!"
+            showwback False = ""
     show NoArgs = ""
     show NullArgs = "not parse args"
 
@@ -289,7 +324,12 @@ parseCondAt off = do
         14 -> return CondAL
         15 -> return Uncond
 
+wordToEndianState :: Word32 -> EndianState
+wordToEndianState 1 = BE
+wordToEndianState 0 = LE
+
+-- We should validate that the length of the array is 16.
 decodeRegisterList :: [Word32] -> [ArmRegister]
-decodeRegisterList = fst . (foldr regselect ([],0))
+decodeRegisterList = reverse . fst . (foldr regselect ([],0))
     where regselect 0 (r,i) = (r,i+1)
           regselect 1 (r,i) = ((wordToRegister i):r,i+1)

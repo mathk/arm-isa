@@ -118,6 +118,8 @@ parseHalfThumbInstruction = do
         [0,1,1,_,_,_] -> parseLoadStoreSingleDataItem
         [1,0,0,_,_,_] -> parseLoadStoreSingleDataItem
         [1,0,1,1,_,_] -> parseHalfMiscellaneous
+        [1,1,0,0,0,_] -> partialInstruction Stm <*> parseLoadStoreMultipleT1Args 
+        [1,1,0,0,1,_] -> partialInstruction Ldm <*> parseLoadStoreMultipleT1Args 
         [1,1,0,1,_,_] -> parseConditionalBranchAndSupervisorCall
         [1,1,1,0,0,_] -> partialInstruction B <*> parseBranchImmediateT2Args
         otherwise     -> return NotParsed
@@ -125,6 +127,10 @@ parseHalfThumbInstruction = do
 -- | Parse a thumb instruction that have a 32 bit length
 parseFullThumbInstruction :: ThumbStreamState ArmInstr
 parseFullThumbInstruction = return NotParsed
+
+{------------------------------------------------------------------------------
+ - Docoding table for 16 bit thumb instruction
+ -----------------------------------------------------------------------------}
 
 parseConditionalBranchAndSupervisorCall :: ThumbStreamState ArmInstr
 parseConditionalBranchAndSupervisorCall = do
@@ -146,6 +152,15 @@ parseHalfMiscellaneous = do
         [0,0,1,0,1,0,_] -> partialInstruction Uxth <*> parseCompareBranchT1Args
         [0,0,1,0,1,1,_] -> partialInstruction Uxtb <*> parseCompareBranchT1Args
         [0,0,1,1,_,_,_] -> partialInstruction Cbz <*> parseCompareBranchT1Args
+        [0,1,0,_,_,_,_] -> partialInstruction Push <*> parsePushRegisterListT1Args
+        [0,1,1,0,0,1,0] -> partialInstruction Setend <*> parseSetEndianessT1Args
+        [0,1,1,0,0,1,1] -> partialInstruction Cps <*> parseSetEndianessT1Args
+        [1,0,0,1,_,_,_] -> partialInstruction Cbnz <*> parseCompareBranchT1Args
+        [1,0,1,0,0,0,_] -> partialInstruction Rev <*> parseRegisterToRegisterT1Args
+        [1,0,1,0,0,1,_] -> partialInstruction Rev16 <*> parseRegisterToRegisterT1Args
+        [1,0,1,0,1,1,_] -> partialInstruction Revsh <*> parseRegisterToRegisterT1Args
+        [1,0,1,1,_,_,_] -> partialInstruction Cbnz <*> parseCompareBranchT1Args
+        [1,1,0,_,_,_,_] -> partialInstruction Pop <*> parsePopRegisterListT1Args
         otherwise -> return Undefined
 
 parseLoadStoreSingleDataItem :: ThumbStreamState ArmInstr
@@ -233,6 +248,10 @@ partialInstruction cl = ArmInstr <$> instructionWord <*> pure CondAL <*> pure cl
 partialInstructionWithCondition :: InstrClass -> ThumbStreamState Cond -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
 partialInstructionWithCondition cl cond = ArmInstr <$> instructionWord <*> cond <*> pure cl <*> pure False
 
+{------------------------------------------------------------------------------
+ - Argument parsing function
+ -----------------------------------------------------------------------------}
+
 parseShiftImmediateT1Args :: SRType -> ThumbStreamState ArgumentsInstruction
 parseShiftImmediateT1Args st = do
     Shift (st,imm) <- decodeImmediateShift st <$> instructionBits 6 5
@@ -304,7 +323,6 @@ parseImmediateT1Arg = ImmediateArgs <$>
         parseThumbRegister 3 <*>
         parseThumbRegister 0 <*>
         pure 0
-
 
 parseSpecialRegsiterT1Args :: ThumbStreamState ArgumentsInstruction
 parseSpecialRegsiterT1Args = RegisterArgs <$> 
@@ -389,6 +407,41 @@ parseCompareBranchT1Args :: ThumbStreamState ArgumentsInstruction
 parseCompareBranchT1Args = CompareBranchArgs <$>
     parseThumbRegister 0 <*>
     ((*2) <$> ((+) <$> ((`shiftL` 5) <$> instructionBits 11 1) <*> instructionBits 3 5))
+
+parsePushRegisterListT1Args :: ThumbStreamState ArgumentsInstruction
+parsePushRegisterListT1Args = do
+    m <- instructionBits 8 1
+    reglist <- instructionArrayBits [7,6,5,4,3,2,1,0]
+    return $ RegisterListArgs $ decodeRegisterList $ 0:m:0:0:0:0:0:0:reglist
+
+parsePopRegisterListT1Args :: ThumbStreamState ArgumentsInstruction
+parsePopRegisterListT1Args = do
+    p <- instructionBits 8 1
+    reglist <- instructionArrayBits [7,6,5,4,3,2,1,0]
+    return $ RegisterListArgs $ decodeRegisterList $ p:0:0:0:0:0:0:0:reglist
+
+parseSetEndianessT1Args :: ThumbStreamState ArgumentsInstruction
+parseSetEndianessT1Args = SettingEndiannessArgs <$> (wordToEndianState <$> instructionBits 3 1) 
+
+parseChangeProcessorStateT1Args :: ThumbStreamState ArgumentsInstruction
+parseChangeProcessorStateT1Args = ChangeProcessorStateArgs <$> 
+        (not <$> instructionFlag 4) <*>
+        instructionFlag 2 <*>
+        instructionFlag 1 <*>
+        instructionFlag 0 <*>
+        pure False <*>
+        pure 0 
+
+parseRegisterToRegisterT1Args :: ThumbStreamState ArgumentsInstruction
+parseRegisterToRegisterT1Args = RegisterToRegisterArgs <$>
+        parseThumbRegister 0 <*>
+        parseThumbRegister 3
+
+parseLoadStoreMultipleT1Args :: ThumbStreamState ArgumentsInstruction
+parseLoadStoreMultipleT1Args = LoadAndStoreRegisterListArgs <$>
+        parseThumbRegister 8 <*>
+        pure True <*>
+        (decodeRegisterList . ([0,0,0,0,0,0,0,0]++) <$> instructionArrayBits [7,6,5,4,3,2,1,0])
 
 parseStream :: ByteString -> [ArmInstr]
 parseStream s = fst (runState (parseInstrStream 50) (ThumbStream s 0 0 False))
