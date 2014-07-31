@@ -1,5 +1,5 @@
 module Internal.Type (
-    wordToSRType, wordToRegister, instructionSignedExtendBits, instructionArrayBits, instructionFlag, parseRegister, parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList
+    wordToSRType, wordToRegister, instructionSignedExtendBits, instructionArrayBits, instructionFlag, parseRegister, parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList,
     InstructionStreamState(..),
     ArmRegister(..),
     ArmInstr(..),

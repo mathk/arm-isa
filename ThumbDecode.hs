@@ -140,6 +140,13 @@ parseHalfMiscellaneous = do
     case bitsField of
         [0,0,0,0,0,_,_] -> partialInstruction Add <*> parseMiscArithmeticT2Args
         [0,0,0,0,1,_,_] -> partialInstruction Sub <*> parseMiscArithmeticT2Args
+        [0,0,0,1,_,_,_] -> partialInstruction Cbz <*> parseCompareBranchT1Args
+        [0,0,1,0,0,0,_] -> partialInstruction Sxth <*> parseCompareBranchT1Args
+        [0,0,1,0,0,1,_] -> partialInstruction Sxtb <*> parseCompareBranchT1Args
+        [0,0,1,0,1,0,_] -> partialInstruction Uxth <*> parseCompareBranchT1Args
+        [0,0,1,0,1,1,_] -> partialInstruction Uxtb <*> parseCompareBranchT1Args
+        [0,0,1,1,_,_,_] -> partialInstruction Cbz <*> parseCompareBranchT1Args
+        otherwise -> return Undefined
 
 parseLoadStoreSingleDataItem :: ThumbStreamState ArmInstr
 parseLoadStoreSingleDataItem = do
@@ -377,6 +384,11 @@ parseExtractT1Args = ExtractArgs <$>
     parseThumbRegister 0 <*>
     -- Not used in T1
     pure 0
+
+parseCompareBranchT1Args :: ThumbStreamState ArgumentsInstruction
+parseCompareBranchT1Args = CompareBranchArgs <$>
+    parseThumbRegister 0 <*>
+    ((*2) <$> ((+) <$> ((`shiftL` 5) <$> instructionBits 11 1) <*> instructionBits 3 5))
 
 parseStream :: ByteString -> [ArmInstr]
 parseStream s = fst (runState (parseInstrStream 50) (ThumbStream s 0 0 False))
