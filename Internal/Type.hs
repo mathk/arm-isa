@@ -30,7 +30,7 @@ data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | FP | 
 data ArmInstr = 
           ArmInstr {code :: Word32, cond :: Cond, memonic :: InstrClass, isFlags :: Bool, args :: ArgumentsInstruction  } 
         | NotParsed
-        | Undefined
+        | Undefined Word32
 
 newtype Shift = Shift (SRType, Word32)
 
@@ -168,7 +168,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
@@ -224,7 +224,7 @@ instance Show SRType where
 instance Show ArmInstr where
     show ArmInstr {code=co, cond=c,memonic=m, isFlags=flgs, args=arguments} = printf "%08X %s%s %s" co (show m) (show c) (show arguments)
     show NotParsed = "Unknown"
-    show Undefined = "Undefined"
+    show (Undefined code) = printf "%08X Undefined" code
 
 instance Show Cond where
     show CondEQ = ".eq"

@@ -67,14 +67,14 @@ secondInstructionBits off count = do
 -- | Unify the way we fetch intruction bits
 thumbInstructionBits :: Int -> Int -> ThumbStreamState Word32
 thumbInstructionBits off size
-    | off > 15 = fromIntegral <$> firstInstructionBits off size
+    | off > 15 = fromIntegral <$> firstInstructionBits (off-16) size
     | off <=15 && (off+size) <= 16 = do
         isHalf <- isHalfwordInstruction
         if isHalf
         then fromIntegral <$> firstInstructionBits off size
         else fromIntegral <$> secondInstructionBits off size
     | otherwise = (+) <$> (fromIntegral <$> secondInstructionBits off sizeInFirstWord) <*> 
-                          (fromIntegral . (`shiftL` sizeInFirstWord) <$> firstInstructionBits 0 (size - sizeInFirstWord))
+                          ((`shiftL` sizeInFirstWord) . fromIntegral <$> firstInstructionBits 0 (size - sizeInFirstWord))
             where sizeInFirstWord = 16 - off
 
 -- | Is the current instruction is 16 half word or a full 32 word
@@ -127,15 +127,52 @@ parseHalfThumbInstruction = do
 -- | Parse a thumb instruction that have a 32 bit length
 parseFullThumbInstruction :: ThumbStreamState ArmInstr
 parseFullThumbInstruction = do
-    bitsField <- instructionArrayBits (map (+16) [12,11,10,9,8,7,6,5,4]) ++ [15]
+    bitsField <- instructionArrayBits ((Prelude.map (+16) [12,11,10,9,8,7,6,5,4]) ++ [15])
     case bitsField of
-        [0,1 0,1,_,_,_,_,_, _] -> parseDataProcessingRegsiter
-        otherwise -> Undefined
+        [0,1, 0,1,_,_,_,_,_, _] -> parseDataProcessingRegister
+        otherwise -> Undefined <$> instructionWord 
 
 
 parseDataProcessingRegister :: ThumbStreamState ArmInstr
 parseDataProcessingRegister = do
-    bitsField <- instructionArrayBits (map (+16) [8,7,6,5,3,2,1,0]) ++ [11,10,9,8]
+    bitsField <- instructionArrayBits ((Prelude.map (+16) [8,7,6,5,3,2,1,0]) ++ [11,10,9,8,20])
+    case bitsField of
+        [0,0,0,0, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Tst <*> instructionFlag 20 <*> parseRegisterTestT2Args
+        [0,0,0,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags And <*> instructionFlag 20 <*> parseRegisterT2Args
+        [0,0,0,1, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Bic <*> instructionFlag 20 <*> parseRegisterT2Args
+        [0,0,1,0, 1,1,1,1, _,_,_,_,_] -> parseMovAndImmediateShift
+        [0,0,1,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Orr <*> instructionFlag 20 <*> parseRegisterT2Args
+        [0,0,1,1, 1,1,1,1, _,_,_,_,_] -> partialInstructionWithFlags Mvn <*> instructionFlag 20 <*> parseRegisterMvnT2Args
+        [0,0,1,1, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Orn <*> instructionFlag 20 <*> parseRegisterT2Args
+        [0,1,0,0, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Teq <*> instructionFlag 20 <*> parseRegisterTestT2Args
+        [0,1,0,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Eor <*> instructionFlag 20 <*> parseRegisterT2Args
+        [0,1,1,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Pkh <*> instructionFlag 20 <*> pure NullArgs
+        [1,0,0,0, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Cmn <*> instructionFlag 20 <*> parseRegisterTestT2Args
+        [1,0,0,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Add <*> instructionFlag 20 <*> parseRegisterT2Args
+        [1,0,1,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Adc <*> instructionFlag 20 <*> parseRegisterT2Args
+        [1,0,1,1, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Sbc <*> instructionFlag 20 <*> parseRegisterT2Args
+        [1,1,0,1, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Cmp <*> instructionFlag 20 <*> parseRegisterTestT2Args
+        [1,1,0,1, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Sub <*> instructionFlag 20 <*> parseRegisterT2Args
+        [1,1,1,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Rsb <*> instructionFlag 20 <*> parseRegisterT2Args
+        otherwise -> Undefined <$> instructionWord 
+
+parseMovAndImmediateShift :: ThumbStreamState ArmInstr
+parseMovAndImmediateShift = do
+    bitsField <- instructionArrayBits [5,4,14,13,12,7,6]
+    case bitsField of
+        [0,0, 0,0,0,0,0] -> partialInstructionWithFlags Mov <*> 
+                                instructionFlag 20 <*> parseRegisterMovT3Args
+        [0,0, _,_,_,_,_] -> partialInstructionWithFlags Lsl <*>
+                                instructionFlag 20 <*> parseImmediateTestT2Args
+        [0,1, _,_,_,_,_] -> partialInstructionWithFlags Lsr <*>
+                                instructionFlag 20 <*> parseImmediateTestT2Args
+        [1,0, _,_,_,_,_] -> partialInstructionWithFlags Asr <*>
+                                instructionFlag 20 <*> parseImmediateTestT2Args
+        [1,1, 0,0,0,0,0] -> partialInstructionWithFlags Rrx <*> 
+                                instructionFlag 20 <*> parseRegisterMovT3Args
+        [1,1, _,_,_,_,_] -> partialInstructionWithFlags Ror <*>
+                                instructionFlag 20 <*> parseImmediateTestT2Args
+        
 
 
 {------------------------------------------------------------------------------
@@ -171,7 +208,7 @@ parseHalfMiscellaneous = do
         [1,0,1,0,1,1,_] -> partialInstruction Revsh <*> parseRegisterToRegisterT1Args
         [1,0,1,1,_,_,_] -> partialInstruction Cbnz <*> parseCompareBranchT1Args
         [1,1,0,_,_,_,_] -> partialInstruction Pop <*> parsePopRegisterListT1Args
-        otherwise -> return Undefined
+        otherwise -> Undefined <$> instructionWord
 
 parseLoadStoreSingleDataItem :: ThumbStreamState ArmInstr
 parseLoadStoreSingleDataItem = do
@@ -193,7 +230,7 @@ parseLoadStoreSingleDataItem = do
         [1,0,0,0, 1,_,_] -> partialInstruction Ldrh <*> parseLoadStoreImmediateT1Args
         [1,0,0,1, 0,_,_] -> partialInstruction Str <*> parseLoadStoreImmediateT2Args
         [1,0,0,1, 1,_,_] -> partialInstruction Ldr <*> parseLoadStoreImmediateT2Args
-        otherwise -> return Undefined
+        otherwise -> Undefined <$> instructionWord
 
 parseSpecialDataInstruction :: ThumbStreamState ArmInstr
 parseSpecialDataInstruction = do
@@ -204,7 +241,7 @@ parseSpecialDataInstruction = do
         [1,0,_,_] -> partialInstruction Mov <*> parseSpecialRegsiterMovT2Args  
         [1,1,0,_] -> partialInstruction Bx  <*> parseSpecialBranchRegisterT1Args
         [1,1,1,_] -> partialInstruction Blx <*> parseSpecialBranchRegisterT1Args
-        otherwise -> return Undefined
+        otherwise -> Undefined <$> instructionWord
 
 parseHalfDataProcessing :: ThumbStreamState ArmInstr
 parseHalfDataProcessing = do
@@ -226,7 +263,7 @@ parseHalfDataProcessing = do
         [1,1,0,1] -> partialInstruction Mul <*> parseDataRegisterT1Args   
         [1,1,1,0] -> partialInstruction Bic <*> parseDataRegisterT1Args   
         [1,1,1,1] -> partialInstruction And <*> parseDataRegisterT1Args   
-        otherwise -> return Undefined
+        otherwise -> Undefined <$> instructionWord
 
 parseShiftImmediate :: ThumbStreamState ArmInstr
 parseShiftImmediate = do
@@ -250,10 +287,13 @@ parseShiftImmediate = do
         [1,0,1,_,_] -> partialInstruction Cmp <*> parseImmediateTestT1Args
         [1,1,0,_,_] -> partialInstruction Add <*> parseImmediate8T1Args
         [1,1,1,_,_] -> partialInstruction Sub <*> parseImmediate8T1Args
-        otherwise -> return Undefined
+        otherwise -> Undefined <$> instructionWord
 
 partialInstruction :: InstrClass -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
 partialInstruction cl = ArmInstr <$> instructionWord <*> pure CondAL <*> pure cl <*> pure False
+
+partialInstructionWithFlags :: InstrClass -> ThumbStreamState (Bool -> ArgumentsInstruction -> ArmInstr)
+partialInstructionWithFlags cl = ArmInstr <$> instructionWord <*> pure CondAL <*> pure cl
 
 partialInstructionWithCondition :: InstrClass -> ThumbStreamState Cond -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
 partialInstructionWithCondition cl cond = ArmInstr <$> instructionWord <*> cond <*> pure cl <*> pure False
@@ -452,6 +492,39 @@ parseLoadStoreMultipleT1Args = LoadAndStoreRegisterListArgs <$>
         parseThumbRegister 8 <*>
         pure True <*>
         (decodeRegisterList . ([0,0,0,0,0,0,0,0]++) <$> instructionArrayBits [7,6,5,4,3,2,1,0])
+
+parseRegisterTestT2Args :: ThumbStreamState ArgumentsInstruction
+parseRegisterTestT2Args = RegisterTestArgs <$> 
+        parseRegister 16 <*> 
+        parseRegister 0 <*>
+        (wordToSRType <$> instructionBits 4 2) <*>
+        ((+) <$> ((`shiftL` 2) <$> instructionBits 12 3) <*> instructionBits 6 2)
+
+parseRegisterT2Args :: ThumbStreamState ArgumentsInstruction
+parseRegisterT2Args = RegisterArgs <$> 
+        parseRegister 16 <*> 
+        parseRegister 8 <*> 
+        parseRegister 0 <*>
+        (wordToSRType <$> instructionBits 4 2) <*>
+        ((+) <$> ((`shiftL` 2) <$> instructionBits 12 3) <*> instructionBits 6 2)
+
+parseRegisterMovT3Args :: ThumbStreamState ArgumentsInstruction
+parseRegisterMovT3Args = RegisterToRegisterArgs <$>
+        parseRegister 8 <*>
+        parseRegister 0
+
+parseImmediateTestT2Args :: ThumbStreamState ArgumentsInstruction
+parseImmediateTestT2Args = ImmediateArgs <$>
+        parseRegister 0 <*>
+        parseRegister 8 <*>
+        ((+) <$> ((`shiftL` 2) <$> instructionBits 12 3) <*> instructionBits 6 2)
+
+parseRegisterMvnT2Args :: ThumbStreamState ArgumentsInstruction
+parseRegisterMvnT2Args = RegisterMvnArgs <$>
+        parseRegister 8 <*> 
+        parseRegister 0 <*>
+        (wordToSRType <$> instructionBits 4 2) <*>
+        ((+) <$> ((`shiftL` 2) <$> instructionBits 12 3) <*> instructionBits 6 2)
 
 parseStream :: ByteString -> [ArmInstr]
 parseStream s = fst (runState (parseInstrStream 50) (ThumbStream s 0 0 False))

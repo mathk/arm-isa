@@ -67,7 +67,7 @@ parseArmInstruction = do
                 Coprocessor -> return $ Nothing
     case part of
         Just (cl,flags,arguments) -> ArmInstr <$> instructionBits 0 32 <*> parseCond <*> return cl <*> return flags <*> return  arguments
-        Nothing -> return Undefined
+        Nothing -> Undefined <$> instructionBits 0 32
 
 -- | Branch, branch with link and block data transfert
 parseBranchAndBlockTransfer :: ArmStreamState ArmInstructionPart
