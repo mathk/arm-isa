@@ -138,7 +138,7 @@ parseFullThumbInstruction = do
 -- Section A6.3.1 of the reference manual.
 parseDataProcessingModifiedImmediate :: ThumbStreamState ArmInstr
 parseDataProcessingModifiedImmediate = do
-    bitsField <- instructionArrayBits (Prelude.map (+16) [8,7,6,5,3,2,1]) ++ [11,10,9,8,20]
+    bitsField <- instructionArrayBits $ (Prelude.map (+16) [8,7,6,5,3,2,1]) ++ [11,10,9,8,20]
     case bitsField of 
         [0,0,0,0, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Tst 20 <*> parseImmediate12TestT1Args
         [0,0,0,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags And 20 <*> parseImmediate12T1Args
