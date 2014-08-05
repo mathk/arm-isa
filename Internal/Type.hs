@@ -133,10 +133,12 @@ data ArgumentsInstruction =
     |   LoadRegisterArgs
             ArmRegister -- ^ The rt register
             Word32      -- ^ The immediate value to fetch
+            Bool        -- ^ Add immediate value
     |   LoadStoreRegisterArgs
             ArmRegister -- ^ The rm register
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rt register
+            Word32      -- ^ Indicate a LSL shift
     |   LoadStoreImmediateArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rt register
@@ -160,6 +162,12 @@ data ArgumentsInstruction =
             Bool        -- ^ Affect the F flag
             Bool        -- ^ True the mode is changed
             Word32      -- ^ The number of mode to change
+    |   StoreReturnStateArgs -- ^ For srs{db|ai} instruction
+            Bool        -- ^ Direction of the write
+            Word32      -- ^ The mode to store
+    |   ReturnArgs
+            ArmRegister -- ^ The rn register
+            Bool        -- wback flag
     |   NoArgs          -- ^ Instruction with no argument
     |   NullArgs        -- ^ For instruction that is not parsed
 
@@ -168,7 +176,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
@@ -188,8 +196,10 @@ instance Show ArgumentsInstruction where
     show (ShiftArgs rd rm n) = printf "%s, %s  #%d" (show rd) (show rm) n
     show (BranchArgs imm) = printf "<PC+%x>" imm
     show (BranchExchangeArgs rm) = (show rm)
-    show (LoadRegisterArgs rt imm) = printf "%s, #%d" (show rt) imm
-    show (LoadStoreRegisterArgs rm rn rt) = printf "%s, [%s,%s]" (show rt) (show rn) (show rm)
+    show (LoadRegisterArgs rt imm True) = printf "%s, #%d" (show rt) imm
+    show (LoadRegisterArgs rt imm False) = printf "%s, #-%d" (show rt) imm
+    show (LoadStoreRegisterArgs rm rn rt 0) = printf "%s, [%s,%s]" (show rt) (show rn) (show rm)
+    show (LoadStoreRegisterArgs rm rn rt shift) = printf "%s, [%s,%s lsl #%d]" (show rt) (show rn) (show rm) shift
     show (LoadStoreImmediateArgs rn rt imm) = printf "%s, [%s, #%d]" (show rt) (show rn) imm
     show (ExtractArgs rm rd 0) = printf "%s, %s" (show rd) (show rm)
     show (ExtractArgs rm rd rot) = printf "%s, %s, ROR #%d" (show rd) (show rm) rot
@@ -205,6 +215,10 @@ instance Show ArgumentsInstruction where
             showmode False _ = ""
             showmode True mode = printf ", #%d" mode
     show (LoadAndStoreRegisterListArgs rn wback reglist) = printf "%s%s %s" (show rn) (showwback wback) (intercalate ", " (map show reglist))
+        where 
+            showwback True = "!"
+            showwback False = ""
+    show (StoreReturnStateArgs wback mode) = printf "SP%s, #%d" (showwback wback) mode
         where 
             showwback True = "!"
             showwback False = ""
