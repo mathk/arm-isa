@@ -132,19 +132,39 @@ parseFullThumbInstruction = do
     case bitsField of
         [0,1, 0,0,_,_,0,_,_, _] -> parseLoadStoreMultiple
         [0,1, 0,1,_,_,_,_,_, _] -> parseDataProcessingRegister
-        [1,0, _,0,_,_,_,_,_, _] -> parseDataProcessingModifiedImmediate
+        [1,0, _,0,_,_,_,_,_, 0] -> parseDataProcessingModifiedImmediate
+        [1,0, _,1,_,_,_,_,_, 0] -> parseDataProcessingPlainImmediate
         [1,1, 0,0,_,_,1,0,1, _] -> parseLoadWord
         otherwise -> Undefined <$> instructionWord 
+
+parseDataProcessingPlainImmediate :: ThumbStreamState ArgumentsInstruction
+parseDataProcessingPlainImmediate = do
+    bitsField <- instructionArrayBits [8,7,6,5,4,3,2,1,0]
+    case bitsField of 
+        [0,0,0,0,0, 1,1,1,1] -> partialInstruction Adr <*> parseImmediateRelativeTXArgs True 
+        [0,0,0,0,0, _,_,_,_] -> partialInstruction Add <*> parseImmediatePlainT4Args
+        [0,0,1,0,0, _,_,_,_] -> partialInstruction Mov <*> parseImmediateMovPlainT3Args
+        [0,1,0,1,0, 1,1,1,1] -> partialInstruction Adr <*> parseImmediateRelativeTXArgs False
+        [0,1,0,1,0, _,_,_,_] -> partialInstruction Sub <*> parseImmediatePlainT4Args
+        [0,0,1,0,0, _,_,_,_] -> partialInstruction Movt <*> parseImmediateMovPlainT3Args
 
 -- | Load and store multiple instruction decoding
 -- Section A6.3.5 of the reference manual.
 parseLoadStoreMultiple :: ThumbStreamState ArmInstr
 parseLoadStoreMultiple = do
-    bitsField <- instructionArrayBits  [8,7,4,5,3,2,1,0]
+    bitsField <- instructionArrayBits  (Prelude.map (+16) [8,7,4,5,3,2,1,0])
     case bitsField of
         [0,0, 0, _,_,_,_,_] -> partialInstruction Srsdb <*> parseStoreReturnStateT1Args 
         [0,0, 1, _,_,_,_,_] -> partialInstruction Rfedb <*> parseReturnFromExceptionT1Args
+        [0,1, 0, _,_,_,_,_] -> partialInstruction Stm <*> parseStoreMultipleT2Args
+        [0,1, 1, 1,1,1,0,1] -> partialInstruction Pop <*> parsePopRegisterListT2Args
+        [0,1, 1, _,_,_,_,_] -> partialInstruction Ldm <*> parseLoadMultipleT2Args
+        [1,0, 0, 1,1,1,0,1] -> partialInstruction Push <*> parsePushRegisterListT2Args
+        [1,0, 0, _,_,_,_,_] -> partialInstruction Stmdb <*> parseStoreMultipleT2Args
+        [1,0, 1, _,_,_,_,_] -> partialInstruction Ldmdb <*> parseLoadMultipleT2Args
         [1,1, 0, _,_,_,_,_] -> partialInstruction Srsia <*> parseStoreReturnStateT1Args 
+        [1,1, 1, _,_,_,_,_] -> partialInstruction Rfeia <*> parseReturnFromExceptionT1Args
+        otherwise -> Undefined <$> instructionWord
 
 -- | Load word instruction decoding
 -- Section A6.3.7 of the reference manual.
@@ -546,6 +566,18 @@ parsePopRegisterListT1Args = do
     reglist <- instructionArrayBits [7,6,5,4,3,2,1,0]
     return $ RegisterListArgs $ decodeRegisterList $ p:0:0:0:0:0:0:0:reglist
 
+parsePopRegisterListT2Args :: ThumbStreamState ArgumentsInstruction
+parsePopRegisterListT2Args = RegisterListArgs <$>
+        ((\p m t -> decodeRegisterList $ p:m:0:t) <$> 
+            instructionBits 15 1 <*> 
+            instructionBits 14 1 <*> 
+            instructionArrayBits [12,11,10,9,8,7,6,5,4,3,2,1,0]) 
+
+parsePushRegisterListT2Args :: ThumbStreamState ArgumentsInstruction
+parsePushRegisterListT2Args = RegisterListArgs <$>
+        ((\m t -> decodeRegisterList $ 0:m:0:t) <$> 
+            instructionBits 14 1 <*> 
+            instructionArrayBits [12,11,10,9,8,7,6,5,4,3,2,1,0]) 
 parseSetEndianessT1Args :: ThumbStreamState ArgumentsInstruction
 parseSetEndianessT1Args = SettingEndiannessArgs <$> (wordToEndianState <$> instructionBits 3 1) 
 
@@ -572,8 +604,17 @@ parseLoadStoreMultipleT1Args = LoadAndStoreRegisterListArgs <$>
 parseStoreMultipleT2Args :: ThumbStreamState ArgumentsInstruction
 parseStoreMultipleT2Args = LoadAndStoreRegisterListArgs <$>
         parseRegister 16 <*>    
+        instructionFlag 21 <*> pure [R0]
+        --((\m t -> decodeRegisterList $ 0:m:0:t) <$> instructionBits 14 1 <*> instructionArrayBits [12,11,10,9,8,7,6,4,3,2,1,0])
+
+parseLoadMultipleT2Args :: ThumbStreamState ArgumentsInstruction
+parseLoadMultipleT2Args = LoadAndStoreRegisterListArgs <$>
+        parseRegister 16 <*>
         instructionFlag 21 <*>
-        ((\f t -> decodeRegisterList (f ++ [0] ++ t)) <$> ((0:) <$> instructionArrayBits [14]) <*> instructionArrayBits [12,11,10,9,8,7,6,4,3,2,1,0])
+        ((\p m t -> decodeRegisterList $ p:m:0:t) <$> 
+            instructionBits 15 1 <*>
+            instructionBits 14 1 <*>
+            instructionArrayBits [12,11,10,9,8,7,6,4,3,2,1,0])
 
 parseRegisterTestT2Args :: ThumbStreamState ArgumentsInstruction
 parseRegisterTestT2Args = RegisterTestArgs <$> 
@@ -634,6 +675,30 @@ parseReturnFromExceptionT1Args = ReturnArgs <$>
         parseRegister 16 <*>
         instructionFlag 21
 
+parseImmediateRelativeTXArgs = Bool -> ThumbStreamState ArgumentsInstruction
+parseImmediateRelativeTXArgs adding = ImmediateRelativeArgs <$>
+        parseRegister 8 <*>
+        decodeImmediate12T2 <*>
+        pure adding
+       
+parseImmediatePlainT4Args :: ThumbStreamState ArgumentsInstruction
+parseImmediatePlainT4Args = ImmediateArgs <$>
+        parseRegister 16 <*>
+        parseRegister 8 <*>
+        decodeImmediate12T2
+ 
+parseImmediateMovPlainT3Args :: ThumbStreamState ArgumentsInstruction
+parseImmediateMovPlainT3Args = ImmediateMovArgs <$>
+        parseRegister 8 <*>
+        decodeImmediate12T2
+
+decodeImmediate12T2 :: ThumbStreamState Word32
+decodeImmediate12T2 = do
+    imm8 <- instructionBits 0 8
+    imm3 <- (`shiftL` 8) <$> instructionBits 12 3
+    i <- (`shiftL` 11) <$> instructionBits 26 1
+    return imm8 + imm3 + i
+
 decodeImmediate12T1 :: ThumbStreamState Word32
 decodeImmediate12T1 = do
     imm12first <- instructionArrayBits [26,14,13,12]
@@ -659,5 +724,5 @@ decodeImmediate5T2 :: ThumbStreamState Word32
 decodeImmediate5T2 = ((+) <$> ((`shiftL` 2) <$> instructionBits 12 3) <*> instructionBits 6 2)
 
 parseStream :: ByteString -> [ArmInstr]
-parseStream s = fst (runState (parseInstrStream 50) (ThumbStream s 0 0 False))
+parseStream s = fst (runState (parseInstrStream 150) (ThumbStream s 0 0 False))
 

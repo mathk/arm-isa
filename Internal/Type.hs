@@ -83,6 +83,10 @@ data ArgumentsInstruction =
     |   ImmediateTestArgs
             ArmRegister -- ^ The rn register
             Word32      -- ^ The immediate value
+    |   ImmediateRelativeArgs -- ^ For adr
+            ArmRegister -- ^ The rd register
+            Word32      -- ^ The relative immediate value
+            Bool        -- ^ Add the relative value or not
     |   RegisterTestArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rm register
@@ -176,7 +180,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia | Stmdb | Ldmdb | Movt
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
@@ -222,6 +226,14 @@ instance Show ArgumentsInstruction where
         where 
             showwback True = "!"
             showwback False = ""
+    show (ReturnArgs rn wback) = printf "%s%" (show rn) (showwback wback)
+        where 
+            showwback True = "!"
+            showwback False = ""
+    show (ImmediateRelativeArgs rd imm adding) = printf "%s, <PC+#%s%d>" (show rd) (showsign adding) imm
+        where 
+            showsign True = ""
+            showsign False = "-"
     show NoArgs = ""
     show NullArgs = "not parse args"
 
