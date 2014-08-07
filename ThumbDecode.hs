@@ -113,7 +113,7 @@ parseHalfThumbInstruction = do
         [0,0,_,_,_,_] -> parseShiftImmediate
         [0,1,0,0,0,0] -> parseHalfDataProcessing
         [0,1,0,0,0,1] -> parseSpecialDataInstruction
-        [0,1,0,0,1,_] -> partialInstruction Ldr <*> parseLoadRegisterArgs
+        [0,1,0,0,1,_] -> partialInstruction Ldr <*> parseLoadLiteralT1Args
         [0,1,0,1,_,_] -> parseLoadStoreSingleDataItem
         [0,1,1,_,_,_] -> parseLoadStoreSingleDataItem
         [1,0,0,_,_,_] -> parseLoadStoreSingleDataItem
@@ -134,10 +134,39 @@ parseFullThumbInstruction = do
         [0,1, 0,1,_,_,_,_,_, _] -> parseDataProcessingRegister
         [1,0, _,0,_,_,_,_,_, 0] -> parseDataProcessingModifiedImmediate
         [1,0, _,1,_,_,_,_,_, 0] -> parseDataProcessingPlainImmediate
+        [1,0, _,_,_,_,_,_,_, 1] -> parseBranchAndMiscellaneousControl
+        [1,1, 0,0,_,_,0,0,1, _] -> parseLoadByte
         [1,1, 0,0,_,_,1,0,1, _] -> parseLoadWord
         otherwise -> Undefined <$> instructionWord 
 
-parseDataProcessingPlainImmediate :: ThumbStreamState ArgumentsInstruction
+-- | Branch and miscellaneous control
+-- Section A6.3.4
+parseBranchAndMiscellaneousControl :: ThumbStreamState ArmInstr
+parseBranchAndMiscellaneousControl = do
+    bitsField <- instructionArrayBits [14,13,12,7,6,5,4,3,2,1,0,26,25,24,23,22,21,20,11,10,9,8]
+    case bitsField of 
+        [0,0,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,0, _,_,_,_] -> partialInstruction Hvc <*> pure NullArgs
+        [0,0,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction Smc <*> pure NullArgs
+        [0,1,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction Udf <*> pure NullArgs
+        otherwise -> Undefined <$> instructionWord
+
+-- | Load byte, memory hints
+-- Section A6.3.9 of the reference manual.
+parseLoadByte :: ThumbStreamState ArmInstr
+parseLoadByte = do
+    bitsField <- instructionArrayBits [24,23,11,10,9,8,7,6,19,18,17,16,15,14,13,12]
+    case bitsField of
+        [0,_, _,_,_,_,_,_, 1,1,1,1, 1,1,1,1] -> partialInstruction Pld <*> pure NullArgs
+        [0,_, _,_,_,_,_,_, 1,1,1,1, _,_,_,_] -> partialInstruction Ldrb <*> parseLoadLiteralT2Args
+        [0,0, 0,0,0,0,0,0, _,_,_,_, 1,1,1,1] -> partialInstruction Pldw <*> pure NullArgs
+        [0,0, 0,0,0,0,0,0, _,_,_,_, _,_,_,_] -> partialInstruction Ldrb <*> parseLoadStoreRegisterT2Args
+        [0,0, 1,1,0,0,_,_, _,_,_,_, 1,1,1,1] -> partialInstruction Pldw <*> pure NullArgs
+        [0,0, 1,_,_,1,_,_, _,_,_,_, _,_,_,_] -> partialInstruction Ldrb <*> parseLoadStoreImmediateT4Args
+        otherwise -> Undefined <$> instructionWord
+
+-- | Data processing plain binary immediate
+-- Section A6.3.3 of the reference manual.
+parseDataProcessingPlainImmediate :: ThumbStreamState ArmInstr
 parseDataProcessingPlainImmediate = do
     bitsField <- instructionArrayBits [8,7,6,5,4,3,2,1,0]
     case bitsField of 
@@ -146,7 +175,8 @@ parseDataProcessingPlainImmediate = do
         [0,0,1,0,0, _,_,_,_] -> partialInstruction Mov <*> parseImmediateMovPlainT3Args
         [0,1,0,1,0, 1,1,1,1] -> partialInstruction Adr <*> parseImmediateRelativeTXArgs False
         [0,1,0,1,0, _,_,_,_] -> partialInstruction Sub <*> parseImmediatePlainT4Args
-        [0,0,1,0,0, _,_,_,_] -> partialInstruction Movt <*> parseImmediateMovPlainT3Args
+        [0,1,1,0,0, _,_,_,_] -> partialInstruction Movt <*> parseImmediateMovPlainT3Args
+        otherwise -> Undefined <$> instructionWord
 
 -- | Load and store multiple instruction decoding
 -- Section A6.3.5 of the reference manual.
@@ -172,7 +202,7 @@ parseLoadWord :: ThumbStreamState ArmInstr
 parseLoadWord = do
     bitsField <- instructionArrayBits [24,23,11,10,9,8,7,6,19,18,17,16] 
     case bitsField of
-        [0,_, _,_,_,_,_,_, 1,1,1,1] -> partialInstruction Ldr <*> parseLoadRegisterT2Args
+        [0,_, _,_,_,_,_,_, 1,1,1,1] -> partialInstruction Ldr <*> parseLoadLiteralT2Args
         [0,0, 0,0,0,0,0,0, _,_,_,_] -> partialInstruction Ldr <*> parseLoadStoreRegisterT2Args
         [0,0, 1,_,_,1,_,_, _,_,_,_] -> partialInstruction Ldr <*> parseLoadStoreImmediateT3Args
         [0,0, 1,1,0,0,_,_, _,_,_,_] -> partialInstruction Ldr <*> parseLoadStoreImmediateT3Args
@@ -184,7 +214,7 @@ parseLoadWord = do
 -- Section A6.3.1 of the reference manual.
 parseDataProcessingModifiedImmediate :: ThumbStreamState ArmInstr
 parseDataProcessingModifiedImmediate = do
-    bitsField <- instructionArrayBits $ (Prelude.map (+16) [8,7,6,5,3,2,1]) ++ [11,10,9,8,20]
+    bitsField <- instructionArrayBits $ (Prelude.map (+16) [8,7,6,5,3,2,1,0]) ++ [11,10,9,8,20]
     case bitsField of 
         [0,0,0,0, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Tst 20 <*> parseImmediate12TestT1Args
         [0,0,0,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags And 20 <*> parseImmediate12T1Args
@@ -279,6 +309,8 @@ parseHalfMiscellaneous = do
         [1,1,0,_,_,_,_] -> partialInstruction Pop <*> parsePopRegisterListT1Args
         otherwise -> Undefined <$> instructionWord
 
+-- | Load and store a single data
+-- Section A6.2.4 of the reference manual.
 parseLoadStoreSingleDataItem :: ThumbStreamState ArmInstr
 parseLoadStoreSingleDataItem = do
     bitsField <- instructionArrayBits [15,14,13,12,11,10,9]
@@ -470,14 +502,14 @@ parseSpecialRegsiterMovT2Args = do
         (pure $ wordToRegister d) <*>
         parseRegister 3
 
-parseLoadRegisterArgs :: ThumbStreamState ArgumentsInstruction
-parseLoadRegisterArgs = LoadRegisterArgs <$> 
+parseLoadLiteralT1Args :: ThumbStreamState ArgumentsInstruction
+parseLoadLiteralT1Args = LoadLiteralArgs <$> 
         parseThumbRegister 8 <*> 
         ((`rotateR` 2) <$> (instructionBits 0 8)) <*>
         pure True
 
-parseLoadRegisterT2Args :: ThumbStreamState ArgumentsInstruction
-parseLoadRegisterT2Args = LoadRegisterArgs <$>
+parseLoadLiteralT2Args :: ThumbStreamState ArgumentsInstruction
+parseLoadLiteralT2Args = LoadLiteralArgs <$>
         parseRegister 12 <*>
         instructionBits 0 12 <*>
         instructionFlag 24
@@ -500,25 +532,46 @@ parseLoadStoreImmediateT1Args :: ThumbStreamState ArgumentsInstruction
 parseLoadStoreImmediateT1Args = LoadStoreImmediateArgs <$>
     parseThumbRegister 3 <*>
     parseThumbRegister 0 <*>
-    ((`shiftL` 2) <$> instructionBits 6 5)
+    ((`shiftL` 2) <$> instructionBits 6 5) <*>
+    pure False <*>
+    pure True <*>
+    pure True
 
 parseLoadStoreImmediateT2Args :: ThumbStreamState ArgumentsInstruction
 parseLoadStoreImmediateT2Args = LoadStoreImmediateArgs <$>
     pure SP <*>
     parseThumbRegister 8 <*>
-    ((`shiftL` 2) <$> instructionBits 0 8)
+    ((`shiftL` 2) <$> instructionBits 0 8) <*>
+    pure False <*>
+    pure True <*>
+    pure True
 
 parseLoadStoreImmediateT3Args :: ThumbStreamState ArgumentsInstruction
 parseLoadStoreImmediateT3Args = LoadStoreImmediateArgs <$>
     parseRegister 16 <*>
     parseRegister 12 <*>
-    instructionBits 0 12
+    instructionBits 0 12 <*>
+    pure False <*>
+    pure True <*>
+    pure True
+
+parseLoadStoreImmediateT4Args :: ThumbStreamState ArgumentsInstruction
+parseLoadStoreImmediateT4Args = LoadStoreImmediateArgs <$>
+    parseRegister 16 <*>
+    parseRegister 12 <*>
+    instructionBits 0 8 <*>
+    instructionFlag 8 <*>
+    instructionFlag 10 <*>
+    instructionFlag 9
 
 parseLoadStoreImmediateUnprivilegedT1Args :: ThumbStreamState ArgumentsInstruction
 parseLoadStoreImmediateUnprivilegedT1Args = LoadStoreImmediateArgs <$>
     parseRegister 16 <*>
     parseRegister 12 <*>
-    instructionBits 0 8
+    instructionBits 0 8 <*>
+    pure False <*>
+    pure True <*>
+    pure True
 
 parseSupervisorImmediateT1Args :: ThumbStreamState ArgumentsInstruction
 parseSupervisorImmediateT1Args = BranchArgs <$> instructionBits 0 8
@@ -690,14 +743,22 @@ parseImmediatePlainT4Args = ImmediateArgs <$>
 parseImmediateMovPlainT3Args :: ThumbStreamState ArgumentsInstruction
 parseImmediateMovPlainT3Args = ImmediateMovArgs <$>
         parseRegister 8 <*>
-        decodeImmediate12T2
+        decodeImmediate16T1
 
 decodeImmediate12T2 :: ThumbStreamState Word32
 decodeImmediate12T2 = do
     imm8 <- instructionBits 0 8
     imm3 <- (`shiftL` 8) <$> instructionBits 12 3
     i <- (`shiftL` 11) <$> instructionBits 26 1
-    return imm8 + imm3 + i
+    return $ imm8 + imm3 + i
+
+decodeImmediate16T1 :: ThumbStreamState Word32
+decodeImmediate16T1 = do
+    imm8 <- instructionBits 0 8
+    imm3 <- (`shiftL` 8) <$> instructionBits 12 3
+    i <- (`shiftL` 11) <$> instructionBits 26 1
+    imm4 <- (`shiftL` 12) <$> instructionBits 16 4
+    return $ imm8 + imm3 + i + imm4
 
 decodeImmediate12T1 :: ThumbStreamState Word32
 decodeImmediate12T1 = do

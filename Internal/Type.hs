@@ -140,7 +140,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rn register
             Bool        -- ^ If we take the high bits of rm
             Bool        -- ^ If we take the high bits of rn
-    |   LoadRegisterArgs
+    |   LoadLiteralArgs
             ArmRegister -- ^ The rt register
             Word32      -- ^ The immediate value to fetch
             Bool        -- ^ Add immediate value
@@ -152,7 +152,10 @@ data ArgumentsInstruction =
     |   LoadStoreImmediateArgs
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rt register
-            Word32      -- ^ The immediate value to store or load
+            Word32      -- ^ The immediate value offset
+            Bool        -- ^ Wback information
+            Bool        -- ^ Index information
+            Bool        -- ^ Add information
     |   ExtractArgs
             ArmRegister -- ^ The rm register
             ArmRegister -- ^ The rd register
@@ -177,7 +180,7 @@ data ArgumentsInstruction =
             Word32      -- ^ The mode to store
     |   ReturnArgs
             ArmRegister -- ^ The rn register
-            Bool        -- wback flag
+            Bool        -- ^ wback flag
     |   NoArgs          -- ^ Instruction with no argument
     |   NullArgs        -- ^ For instruction that is not parsed
 
@@ -186,7 +189,7 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia | Stmdb | Ldmdb | Movt
+data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia | Stmdb | Ldmdb | Movt | Adr | Pld | Pldw
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
@@ -206,11 +209,13 @@ instance Show ArgumentsInstruction where
     show (ShiftArgs rd rm n) = printf "%s, %s  #%d" (show rd) (show rm) n
     show (BranchArgs imm) = printf "<PC+%x>" imm
     show (BranchExchangeArgs rm) = (show rm)
-    show (LoadRegisterArgs rt imm True) = printf "%s, #%d" (show rt) imm
-    show (LoadRegisterArgs rt imm False) = printf "%s, #-%d" (show rt) imm
+    show (LoadLiteralArgs rt imm True) = printf "%s, #%d" (show rt) imm
+    show (LoadLiteralArgs rt imm False) = printf "%s, #-%d" (show rt) imm
     show (LoadStoreRegisterArgs rm rn rt 0) = printf "%s, [%s,%s]" (show rt) (show rn) (show rm)
     show (LoadStoreRegisterArgs rm rn rt shift) = printf "%s, [%s,%s lsl #%d]" (show rt) (show rn) (show rm) shift
-    show (LoadStoreImmediateArgs rn rt imm) = printf "%s, [%s, #%d]" (show rt) (show rn) imm
+    show (LoadStoreImmediateArgs rn rt imm False True add) = printf "%s, [%s, %s]" (show rt) (show rn) (showImmediate imm add)
+    show (LoadStoreImmediateArgs rn rt imm True True add) = printf "%s, [%s, %s]!" (show rt) (show rn) (showImmediate imm add)
+    show (LoadStoreImmediateArgs rn rt imm True False add) = printf "%s, [%s], %s" (show rt) (show rn) (showImmediate imm add)
     show (ExtractArgs rm rd 0) = printf "%s, %s" (show rd) (show rm)
     show (ExtractArgs rm rd rot) = printf "%s, %s, ROR #%d" (show rd) (show rm) rot
     show (CompareBranchArgs rn imm) = printf "%s, <PC+%x>" (show rn) imm
@@ -276,6 +281,10 @@ instance Show Cond where
     show CondLE = ".le"
     show CondAL = ""
     show Uncond = ""
+
+showImmediate :: Word32 -> Bool -> String
+showImmediate w True = printf "#%d" w
+showImmediate w False = printf "#-%d" w
 
 wordToSRType :: Word32 -> SRType
 wordToSRType 0 = LSL
