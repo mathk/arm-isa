@@ -675,7 +675,7 @@ parseReturnFromExceptionT1Args = ReturnArgs <$>
         parseRegister 16 <*>
         instructionFlag 21
 
-parseImmediateRelativeTXArgs = Bool -> ThumbStreamState ArgumentsInstruction
+parseImmediateRelativeTXArgs :: Bool -> ThumbStreamState ArgumentsInstruction
 parseImmediateRelativeTXArgs adding = ImmediateRelativeArgs <$>
         parseRegister 8 <*>
         decodeImmediate12T2 <*>

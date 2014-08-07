@@ -96,6 +96,12 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rm register
             Word32      -- ^ Immediate value to shift
+    |   SaturateArgs
+            ArmRegister -- ^ The rn register
+            ArmRegister -- ^ The rd register
+            Word32      -- ^ Saturate value
+            SRType      -- ^ Shift type
+            Word32      -- ^ The value to shift
     |   BranchArgs
             Word32      -- ^ Immediate value to branch
     |   BranchExchangeArgs
@@ -234,6 +240,7 @@ instance Show ArgumentsInstruction where
         where 
             showsign True = ""
             showsign False = "-"
+    show (SaturateArgs rn rd sat st imm) = printf "%s, #%d, %s%s" (show rd) sat (show rn) (show $ decodeImmediateShift st imm)
     show NoArgs = ""
     show NullArgs = "not parse args"
 
