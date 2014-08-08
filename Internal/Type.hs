@@ -221,8 +221,8 @@ instance Show ArgumentsInstruction where
     show (ShiftArgs rd rm n) = printf "%s, %s  #%d" (show rd) (show rm) n
     show (BranchArgs imm) = printf "<PC+%x>" imm
     show (BranchExchangeArgs rm) = (show rm)
-    show (LoadLiteralArgs rt imm True) = printf "%s, #%d" (show rt) imm
-    show (LoadLiteralArgs rt imm False) = printf "%s, #-%d" (show rt) imm
+    show (LoadLiteralArgs rt imm True) = printf "%s, [PC, #%d]" (show rt) imm
+    show (LoadLiteralArgs rt imm False) = printf "%s, [PC, #-%d]" (show rt) imm
     show (LoadStoreRegisterArgs rm rn rt 0) = printf "%s, [%s,%s]" (show rt) (show rn) (show rm)
     show (LoadStoreRegisterArgs rm rn rt shift) = printf "%s, [%s,%s lsl #%d]" (show rt) (show rn) (show rm) shift
     show (LoadStoreImmediateArgs rn rt imm False True add) = printf "%s, [%s, %s]" (show rt) (show rn) (showImmediate imm add)

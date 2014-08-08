@@ -517,7 +517,7 @@ parseSpecialRegsiterMovT2Args = do
 parseLoadLiteralT1Args :: ThumbStreamState ArgumentsInstruction
 parseLoadLiteralT1Args = LoadLiteralArgs <$> 
         parseThumbRegister 8 <*> 
-        ((`rotateR` 2) <$> (instructionBits 0 8)) <*>
+        ((`shiftL` 2) <$> (instructionBits 0 8)) <*>
         pure True
 
 parseLoadLiteralT2Args :: ThumbStreamState ArgumentsInstruction
@@ -832,13 +832,13 @@ decodeImmediate12T1 = do
         [0,0,0,0] -> instructionBits 0 8
         [0,0,0,1] -> do 
             imm8 <- instructionBits 0 8
-            return $ imm8 + (imm8*(2^15))
+            return $ imm8 + (imm8 `shiftL` 16)
         [0,0,1,0] -> do
             imm8 <- instructionBits 0 8
-            return $ (imm8*(2^7)) + (imm8 * (2^23))
+            return $ (imm8 `shiftL` 8) + (imm8 `shiftL` 24)
         [0,0,1,1] -> do
             imm8 <- instructionBits 0 8
-            return $ (imm8*(2^7)) + (imm8 * (2^23)) + imm8 + (imm8*(2^15))
+            return $ (imm8 `shiftL` 8) + (imm8 `shiftL` 24) + imm8 + (imm8 `shiftL` 16)
         otherwise -> do
             a <- instructionBits 7 1
             i <- instructionBits 26 1
