@@ -67,7 +67,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.elfHeader value)) ++ [displayElfCanvas value] ++ (displayElfTextSection value input))
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.elfHeader value)) {-++ [displayElfCanvas value]-} ++ (displayElfTextSection value input))
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]

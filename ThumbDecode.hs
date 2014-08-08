@@ -148,6 +148,7 @@ parseBranchAndMiscellaneousControl = do
         [0,0,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,0, _,_,_,_] -> partialInstruction Hvc <*> pure NullArgs
         [0,0,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction Smc <*> pure NullArgs
         [0,1,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction Udf <*> pure NullArgs
+        [0,_,1, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction B <*> pure NullArgs
         otherwise -> Undefined <$> instructionWord
 
 -- | Load byte, memory hints
@@ -745,6 +746,9 @@ parseImmediateMovPlainT3Args = ImmediateMovArgs <$>
         parseRegister 8 <*>
         decodeImmediate16T1
 
+parseBranchImmediateT4Args :: ThumbStreamState ArgumentsInstruction
+parseBranchImmediateT4Args = 
+
 decodeImmediate12T2 :: ThumbStreamState Word32
 decodeImmediate12T2 = do
     imm8 <- instructionBits 0 8
@@ -759,6 +763,13 @@ decodeImmediate16T1 = do
     i <- (`shiftL` 11) <$> instructionBits 26 1
     imm4 <- (`shiftL` 12) <$> instructionBits 16 4
     return $ imm8 + imm3 + i + imm4
+
+decodeImmediateBranchT4 :: ThumbStreamState Word32
+decodeImmediateBranchT4 = do
+    s <- instructionFlag 26
+    i1 <-(not . (`bxor` s)) <$> instructionFlag 13
+    i2 <-(not . (`bxor` s)) <$> instructionFlag 11
+    
 
 decodeImmediate12T1 :: ThumbStreamState Word32
 decodeImmediate12T1 = do
