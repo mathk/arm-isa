@@ -148,7 +148,18 @@ parseBranchAndMiscellaneousControl = do
         [0,0,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,0, _,_,_,_] -> partialInstruction Hvc <*> pure NullArgs
         [0,0,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction Smc <*> pure NullArgs
         [0,1,0, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction Udf <*> pure NullArgs
-        [0,_,1, _,_,_,_,_,_,_,_, 1,1,1,1,1,1,1, _,_,_,_] -> partialInstruction B <*> pure NullArgs
+        [0,_,1, _,_,_,_,_,_,_,_, _,_,_,_,_,_,_, _,_,_,_] -> partialInstruction B <*> parseBranchImmediateT4Args
+        [0,_,0, 0,0,0,0,0,0,0,0, 0,1,1,1,1,0,1, _,_,_,_] -> partialInstruction Eret <*> pure NoArgs
+        [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,1,0,1, _,_,_,_] -> partialInstruction Subs <*> pure NullArgs
+        [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,1,1,_, _,_,_,_] -> partialInstruction Mrs <*> pure NullArgs
+        [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,1,0,0, _,_,_,_] -> partialInstruction Bxj <*> parseBranchRegisterT1Args
+        [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,0,0,_, _,_,_,_] -> return NotParsed
+        [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,0,1,0, _,_,_,_] -> return NotParsed
+        [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,0,1,1, _,_,_,_] -> return NotParsed
+        [0,_,0, _,_,_,_,_,_,_,_, _,1,1,1,_,_,_, _,_,_,_] -> Undefined <$> instructionWord
+        [0,_,0, _,_,_,_,_,_,_,_, _,_,_,_,_,_,_, _,_,_,_] -> partialInstructionWithCondition B 22 <*> parseBranchImmediateT3Args
+        [1,_,0, _,_,_,_,_,_,_,_, _,_,_,_,_,_,_, _,_,_,_] -> partialInstruction Blx <*> parseBranchLinkImmediateT1Args
+        [1,_,1, _,_,_,_,_,_,_,_, _,_,_,_,_,_,_, _,_,_,_] -> partialInstruction Bl <*> parseBranchLinkImmediateT2Args
         otherwise -> Undefined <$> instructionWord
 
 -- | Load byte, memory hints
@@ -285,7 +296,7 @@ parseConditionalBranchAndSupervisorCall = do
     case bitsField of 
         [1,1,1,0] -> partialInstruction Udf <*> pure NoArgs
         [1,1,1,1] -> partialInstruction Svc <*> parseSupervisorImmediateT1Args
-        otherwise -> partialInstructionWithCondition B (parseCondAt 8) <*> parseBranchImmediateT1Args
+        otherwise -> partialInstructionWithCondition B 8 <*> parseBranchImmediateT1Args
 
 parseHalfMiscellaneous :: ThumbStreamState ArmInstr
 parseHalfMiscellaneous = do
@@ -397,8 +408,8 @@ partialInstruction cl = ArmInstr <$> instructionWord <*> pure CondAL <*> pure cl
 partialInstructionWithFlags :: InstrClass -> Int -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
 partialInstructionWithFlags cl off = ArmInstr <$> instructionWord <*> pure CondAL <*> pure cl <*> instructionFlag off
 
-partialInstructionWithCondition :: InstrClass -> ThumbStreamState Cond -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
-partialInstructionWithCondition cl cond = ArmInstr <$> instructionWord <*> cond <*> pure cl <*> pure False
+partialInstructionWithCondition :: InstrClass -> Int -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
+partialInstructionWithCondition cl cond = ArmInstr <$> instructionWord <*> parseCondAt cond <*> pure cl <*> pure False
 
 {------------------------------------------------------------------------------
  - Argument parsing function
@@ -588,6 +599,9 @@ parseBranchImmediateT2Args = BranchArgs <$>
 parseSpecialBranchRegisterT1Args :: ThumbStreamState ArgumentsInstruction
 parseSpecialBranchRegisterT1Args = BranchExchangeArgs <$> parseRegister 3
 
+parseBranchRegisterT1Args :: ThumbStreamState ArgumentsInstruction
+parseBranchRegisterT1Args = BranchExchangeArgs <$> parseRegister 16
+
 parseAddT1Args :: ThumbStreamState ArgumentsInstruction
 parseAddT1Args = ImmediateArgs SP <$>
     parseThumbRegister 8 <*>
@@ -747,7 +761,17 @@ parseImmediateMovPlainT3Args = ImmediateMovArgs <$>
         decodeImmediate16T1
 
 parseBranchImmediateT4Args :: ThumbStreamState ArgumentsInstruction
-parseBranchImmediateT4Args = 
+parseBranchImmediateT4Args = BranchArgs <$> decodeImmediateBranchT4 
+
+parseBranchImmediateT3Args :: ThumbStreamState ArgumentsInstruction
+parseBranchImmediateT3Args = BranchArgs <$> decodeImmediateBranchT3 
+
+
+parseBranchLinkImmediateT1Args :: ThumbStreamState ArgumentsInstruction
+parseBranchLinkImmediateT1Args = BranchArgs <$> decodeImmediateBranchT4
+
+parseBranchLinkImmediateT2Args :: ThumbStreamState ArgumentsInstruction
+parseBranchLinkImmediateT2Args = BranchArgs <$> decodeImmediateBranchLinkT2
 
 decodeImmediate12T2 :: ThumbStreamState Word32
 decodeImmediate12T2 = do
@@ -767,9 +791,39 @@ decodeImmediate16T1 = do
 decodeImmediateBranchT4 :: ThumbStreamState Word32
 decodeImmediateBranchT4 = do
     s <- instructionFlag 26
-    i1 <-(not . (`bxor` s)) <$> instructionFlag 13
-    i2 <-(not . (`bxor` s)) <$> instructionFlag 11
-    
+    i1 <- (bToW . not . (`bxor` s)) <$> instructionFlag 13
+    i2 <- (bToW . not . (`bxor` s)) <$> instructionFlag 11
+    imm11 <- (`shiftL` 1) <$> instructionBits 0 11
+    imm10 <- (`shiftL` 12) <$> instructionBits 16 10
+    sign <- instructionSignedExtendBits 26 1
+    return $ imm10 + imm11 + (i2 `shiftL` 22) + (i1 `shiftL` 23) + (sign `shiftL`24)
+        where
+            bxor a f = (a && f) || (not a && not f)
+            bToW True = 1
+            bToW False = 0 
+
+decodeImmediateBranchLinkT2 :: ThumbStreamState Word32
+decodeImmediateBranchLinkT2 = do
+    s <- instructionFlag 26
+    i1 <- (bToW . not . (`bxor` s)) <$> instructionFlag 13
+    i2 <- (bToW . not . (`bxor` s)) <$> instructionFlag 11
+    imm10L <- (`shiftL` 2) <$> instructionBits 1 10
+    imm10H <- (`shiftL` 12) <$> instructionBits 16 10
+    sign <- instructionSignedExtendBits 26 1
+    return $ imm10L + imm10H + (i2 `shiftL` 22) + (i1 `shiftL` 23) + (sign `shiftL`24)
+        where
+            bxor a f = (a && f) || (not a && not f)
+            bToW True = 1
+            bToW False = 0 
+
+decodeImmediateBranchT3 :: ThumbStreamState Word32
+decodeImmediateBranchT3 = do
+    j1 <- (`shiftL` 18) <$> instructionBits 13 1
+    j2 <- (`shiftL` 19) <$> instructionBits 11 1
+    imm11 <- (`shiftL` 1) <$> instructionBits 0 11
+    imm6 <- (`shiftL` 12) <$> instructionBits 16 6
+    sign <- (`shiftL` 20) <$> instructionSignedExtendBits 26 1
+    return $ imm6 + imm11 + j1 + j2 + sign
 
 decodeImmediate12T1 :: ThumbStreamState Word32
 decodeImmediate12T1 = do

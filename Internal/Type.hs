@@ -189,7 +189,19 @@ data ArgumentsInstruction =
             ArmRegister -- ^ The rd register
             Word32  -- ^ The immediate value --}
 
-data InstrClass = And | Eor | Sub | Rsb | Add | Adc | Sbc | Rsc | Tst | Teq | Clz | Cmp | Cmn | Orr | Orn | Mov | Movw | Movs | Lsl | Lsr | Asr | Rrx | Ror | Bic | Mvn | Msr | B | Bl | Blx | Bx | Bxj | Eret | Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia | Stmdb | Ldmdb | Movt | Adr | Pld | Pldw
+-- | The ARM instruction memonic
+data InstrClass = 
+    Add | Adc | And | Asr |
+    Bic | B | Bl | Blx | Bx | Bxj | 
+    Clz | Cmp | Cmn |
+    Eor | Eret | 
+    Lsl | Lsr | 
+    Mvn | Msr | Mov | Movw | Movs | Mrs | 
+    Orr | Orn | 
+    Rsb | Rsc | Rrx | Ror | 
+    Sub | Subs | Sbc |
+    Tst | Teq | 
+    Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia | Stmdb | Ldmdb | Movt | Adr | Pld | Pldw
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
