@@ -191,17 +191,21 @@ data ArgumentsInstruction =
 
 -- | The ARM instruction memonic
 data InstrClass = 
-    Add | Adc | And | Asr |
-    Bic | B | Bl | Blx | Bx | Bxj | 
-    Clz | Cmp | Cmn |
+    Add | Adc | And | Asr | Adr | 
+    Bkpt | Bic | B | Bl | Blx | Bx | Bxj | 
+    Clz | Cmp | Cmn | Cbnz | Cbz | Cps | 
     Eor | Eret | 
+    Hvc | 
+    Ldr | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Ldm | Ldmdb | 
     Lsl | Lsr | 
-    Mvn | Msr | Mov | Movw | Movs | Mrs | 
+    Mvn | Msr | Mov | Movw | Movs | Movt | Mrs | Mul | 
     Orr | Orn | 
-    Rsb | Rsc | Rrx | Ror | 
-    Sub | Subs | Sbc |
+    Push | Pld | Pldw | Pop | Pkh | 
+    Rsb | Rsc | Rrx | Ror | Rev | Rev16 | Revsh | Rfedb | Rfeia | 
+    Sbc | Smc | Smla | Smlaw | Smulw | Smlal | Sub | Subs | Smul | Setend | 
+    Srsdb | Srsia | Str | Strt | Strh | Strht | Strb | Strbt | Stm | Stmdb | Svc | Sxth | Sxtb | 
     Tst | Teq | 
-    Bkpt | Hvc | Smc | Smla | Smlaw | Smulw | Smlal | Smul | Mul | Ldr | Str | Strh | Strb | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Udf | Svc | Push | Pop | Sxth | Sxtb | Uxth | Uxtb | Cbnz | Cbz | Setend | Cps | Rev | Rev16 | Revsh | Stm | Ldm | Pkh | Srsdb | Srsia | Rfedb | Rfeia | Stmdb | Ldmdb | Movt | Adr | Pld | Pldw
+    Udf | Uxth | Uxtb 
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
