@@ -156,10 +156,15 @@ data ArgumentsInstruction =
             Bool        -- ^ Wback information
             Bool        -- ^ Index information
             Bool        -- ^ Add information
-    |   ExtractArgs
+    |   ExtendArgs
             ArmRegister -- ^ The rm register
             ArmRegister -- ^ The rd register
             Word32      -- ^ The rotation
+    |   ExtendAddArgs
+            ArmRegister -- ^ The rn regsiter
+            ArmRegister -- ^ The rd register
+            ArmRegister -- ^ The rm register
+            Word32      -- ^ Rotation
     |   LoadAndStoreRegisterListArgs -- ^ For stm/ldm
             ArmRegister -- ^ The rn register
             Bool        -- ^ Store or load way back
@@ -203,16 +208,17 @@ data InstrClass =
     Push | Pld | Pldw | Pop | Pkh | 
     Rsb | Rsc | Rrx | Ror | Rev | Rev16 | Revsh | Rfedb | Rfeia | 
     Sbc | Smc | Smla | Smlaw | Smulw | Smlal | Sub | Subs | Smul | Setend | 
-    Srsdb | Srsia | Str | Strt | Strh | Strht | Strb | Strbt | Stm | Stmdb | Svc | Sxth | Sxtb | 
+    Srsdb | Srsia | Str | Strt | Strh | Strht | Strb | Strbt | Stm | Stmdb | Svc | 
+    Sxth | Sxtb | Sxtab | Sxtah | Sxtab16 | Sxtb16 |
     Tst | Teq | 
-    Udf | Uxth | Uxtb 
+    Udf | Uxth | Uxtah | Uxtb | Uxtab | Uxtab16 | Uxtb16
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
 
 instance Show ArgumentsInstruction where
     show (RegisterArgs rn rd rm st n) = printf "%s,%s,%s %s" (show rd) (show rn) (show rm) (show $ decodeImmediateShift st n)
-    show (RegisterShiftShiftedArgs rd rm rn) = printf "%s,%s,%s %s" (show rd) (show rn)
+    show (RegisterShiftShiftedArgs rd rm rn) = printf "%s,%s,%s" (show rd) (show rn) (show rm)
     show (RegisterToRegisterArgs rd rm) = printf "%s,%s" (show rd) (show rm)
     show (RegisterShiftedArgs rn rd rs rm st) = printf "%s,%s,%s %s %s" (show rd) (show rn) (show rm) (show st) (show rs)
     show (RegisterShiftedTestArgs rn rs rm st) = printf "%s,%s %s %s" (show rn) (show rm) (show st) (show rs)
@@ -232,8 +238,10 @@ instance Show ArgumentsInstruction where
     show (LoadStoreImmediateArgs rn rt imm False True add) = printf "%s, [%s, %s]" (show rt) (show rn) (showImmediate imm add)
     show (LoadStoreImmediateArgs rn rt imm True True add) = printf "%s, [%s, %s]!" (show rt) (show rn) (showImmediate imm add)
     show (LoadStoreImmediateArgs rn rt imm True False add) = printf "%s, [%s], %s" (show rt) (show rn) (showImmediate imm add)
-    show (ExtractArgs rm rd 0) = printf "%s, %s" (show rd) (show rm)
-    show (ExtractArgs rm rd rot) = printf "%s, %s, ROR #%d" (show rd) (show rm) rot
+    show (ExtendArgs rm rd 0) = printf "%s, %s" (show rd) (show rm)
+    show (ExtendArgs rm rd rot) = printf "%s, %s, ROR #%d" (show rd) (show rm) rot
+    show (ExtendAddArgs rn rd rm 0) = printf "%s, %s, %s" (show rd) (show rn) (show rm)
+    show (ExtendAddArgs rn rd rm rot) = printf "%s, %s, %s, ROR #%d" (show rd) (show rn) (show rm) rot
     show (CompareBranchArgs rn imm) = printf "%s, <PC+%x>" (show rn) imm
     show (RegisterListArgs list) = printf "{%s}" (intercalate ", " (map show list))
     show (ChangeProcessorStateArgs effect a i f chmode mode) = printf "%s %s%s" (showeffect effect) (showflag [a,i,f]) (showmode chmode mode)
