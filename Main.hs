@@ -55,9 +55,9 @@ main = do
         _ -> case ELF.parse ELF.parseFile input of
                 Right value ->
                     case opt of
-                        GetProgramHeader -> putStrLn $ show (ELF.elfProgramHeaders value) 
-                        GetSectionHeader -> putStrLn $ show (ELF.elfSectionHeaders value) 
-                        GetHeader -> putStrLn $ show (ELF.elfHeader value) 
+                        GetProgramHeader -> putStrLn $ show (ELF.programHeaders value) 
+                        GetSectionHeader -> putStrLn $ show (ELF.sectionHeaders value) 
+                        GetHeader -> putStrLn $ show (ELF.header value) 
                 Left d -> putStrLn d
 
 setup :: Window -> UI ()
@@ -67,7 +67,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.elfHeader value)) {-++ [displayElfCanvas value]-} ++ (displayElfTextSection value input))
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ (displayElfTextSection value input))
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -157,15 +157,15 @@ regionSeparator offset size = UI.line (0.0,offsetCoord) (300.0,offsetCoord)
 
 programSectionOffset :: Int -> ELF.ELFProgramHeader -> UI.Drawing
 programSectionOffset size (ELF.ELFProgramHeader {ELF.phoffset=off}) =
-    (UI.openedPath red 2.0 (regionSeparator (ELF.offsetToInt off) size))
+    (UI.openedPath red 2.0 (regionSeparator off size))
         where red = UI.solidColor $ UI.rgbColor 0xFF 0 0
 
 sectionOffset :: Int -> ELF.ELFSectionHeader -> UI.Drawing
 sectionOffset size (ELF.ELFSectionHeader {ELF.shoffset=off, ELF.shname=sectionName}) =
-    (UI.openedPath blue 2.0 (regionSeparator (ELF.offsetToInt off) size)) <>
+    (UI.openedPath blue 2.0 $ regionSeparator off size) <>
     (UI.setDraw UI.textFont "bold 16px sans-serif") <>
     (UI.setDraw UI.strokeStyle  black) <>
-    (UI.fillText (show sectionName) (300.0, (normalizeY (ELF.offsetToInt off) size)))
+    (UI.fillText (show sectionName) (300.0, (normalizeY off size)))
         where 
             blue = UI.solidColor $ UI.rgbColor 0x50 0x50 0xFF
             black = UI.solidColor $ UI.rgbColor 0 0 0
@@ -174,7 +174,7 @@ initialOffsetMap :: [ELF.ELFSectionHeader] -> Int -> Map.Map Double Double
 initialOffsetMap [] _ = Map.empty
 initialOffsetMap ((ELF.ELFSectionHeader {ELF.shoffset=off}):xs) maxOffset = Map.insert initialPostion initialPostion (initialOffsetMap xs maxOffset)
     where
-        initialPostion = (normalizeY (ELF.offsetToInt off) maxOffset) 
+        initialPostion = normalizeY off maxOffset 
 
 
 sign :: Double -> Double
@@ -238,7 +238,7 @@ drawSectionHeader (ELF.ELFSectionHeader {ELF.shname=sectionName,ELF.shoffset=off
     (UI.openedPath blue 2.0 (UI.line (300.0,position) (380.0,textPosition))) <>
     (UI.fillText (printf "%s (%.02g)" (show sectionName) textPosition) (380.0,textPosition))
         where 
-            position = normalizeY (ELF.offsetToInt off) size
+            position = normalizeY off size
             textPosition = layoutMap Map.! position
             blue = UI.solidColor $ UI.rgbColor 0x50 0x50 0xFF
             black = UI.solidColor $ UI.rgbColor 0 0 0
@@ -251,11 +251,14 @@ layoutAndDrawSectionHeaders :: [ELF.ELFSectionHeader] -> Int -> UI.Drawing
 layoutAndDrawSectionHeaders headers maxSize = drawSectionHeaders headers maxSize (layoutSectionName headers maxSize)
 
 displayElfHeaderOffset :: ELF.ELFInfo -> UI.Drawing
-displayElfHeaderOffset (ELF.ELFInfo header ph sh size) = 
+displayElfHeaderOffset info = 
     --(mconcat (fmap (sectionOffset size) sh )) <>
-    (layoutAndDrawSectionHeaders sh size) <>
-    (mconcat (fmap (programSectionOffset size) ph ))
+    (layoutAndDrawSectionHeaders shs size) <>
+    (mconcat (fmap (programSectionOffset size) phs ))
         where
+            shs = ELF.sectionHeaders info
+            phs = ELF.programHeaders info
+            size = ELF.size info
             green = UI.solidColor $ UI.rgbColor 0x20 0xFF 0
             red = UI.solidColor $ UI.rgbColor 0xFF 0 0
  

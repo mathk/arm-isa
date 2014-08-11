@@ -186,6 +186,9 @@ data ArgumentsInstruction =
     |   ReturnArgs
             ArmRegister -- ^ The rn register
             Bool        -- ^ wback flag
+    |   ItBlockArgs
+            Cond        -- ^ The condition that apply
+            [Bool]      -- ^ Array for the second third and fourth instruction. Ture=then False=else
     |   NoArgs          -- ^ Instruction with no argument
     |   NullArgs        -- ^ For instruction that is not parsed
 
@@ -201,17 +204,21 @@ data InstrClass =
     Clz | Cmp | Cmn | Cbnz | Cbz | Cps | 
     Eor | Eret | 
     Hvc | 
+    It |
     Ldr | Ldrsb | Ldrh | Ldrb | Ldrsh | Ldrt | Ldm | Ldmdb | 
     Lsl | Lsr | 
     Mvn | Msr | Mov | Movw | Movs | Movt | Mrs | Mul | 
+    Nop |
     Orr | Orn | 
     Push | Pld | Pldw | Pop | Pkh | 
     Rsb | Rsc | Rrx | Ror | Rev | Rev16 | Revsh | Rfedb | Rfeia | 
     Sbc | Smc | Smla | Smlaw | Smulw | Smlal | Sub | Subs | Smul | Setend | 
     Srsdb | Srsia | Str | Strt | Strh | Strht | Strb | Strbt | Stm | Stmdb | Svc | 
-    Sxth | Sxtb | Sxtab | Sxtah | Sxtab16 | Sxtb16 |
+    Sxth | Sxtb | Sxtab | Sxtah | Sxtab16 | Sxtb16 | Sev |
     Tst | Teq | 
-    Udf | Uxth | Uxtah | Uxtb | Uxtab | Uxtab16 | Uxtb16
+    Udf | Uxth | Uxtah | Uxtb | Uxtab | Uxtab16 | Uxtb16 |
+    Wfe | Wfi |
+    Yield
     deriving (Show)
 
 data SRType = ASR | LSL | LSR | ROR | RRX
@@ -270,6 +277,10 @@ instance Show ArgumentsInstruction where
             showsign True = ""
             showsign False = "-"
     show (SaturateArgs rn rd sat st imm) = printf "%s, #%d, %s%s" (show rd) sat (show rn) (show $ decodeImmediateShift st imm)
+    show (ItBlockArgs cond lst) = printf "%s %s" (concat . (map toIt) $ lst) (show cond)
+        where 
+            toIt True = "t"
+            toIt False = "e"
     show NoArgs = ""
     show NullArgs = "not parse args"
 

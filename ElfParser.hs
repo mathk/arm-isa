@@ -7,20 +7,23 @@
  -}
 module ElfParser
     (
-      ELFInfo(..),
+      ELFInfo,
       ELFHeader(..),
       ELFProgramHeader(..),
       ELFSectionHeader(..),
-      sectionHeader, programHeaders, sectionName,
+      sectionHeader, 
+      -- * Accessing elf object
+      sectionHeaders, programHeaders, header, size,
+      sectionName,
       parseHeader,
       parseFile, getSectionContent,
       addressToInt,
-      offsetToInt,
       parse
     ) where
 
 import qualified Data.ByteString as B
 import Control.Applicative
+import Control.Monad (forM)
 import qualified FileDecoding as F
 import Text.Printf
 import Data.Word
@@ -116,7 +119,7 @@ data ELFHeader = ELFHeader {
 
 data ELFProgramHeader = ELFProgramHeader {
         phtype :: ELFProgramHeaderType,
-        phoffset :: Offset,
+        phoffset :: Int,
         phvaddr :: Address,
         phpaddr :: Address,
         phfilesz :: MachineInt,
@@ -132,7 +135,7 @@ data ELFSectionHeader = ELFSectionHeader {
         shtype :: ELFSectionHeaderType,
         shflags :: MachineInt,
         shaddr :: Address,
-        shoffset :: Offset,
+        shoffset :: Int,
         shsize :: MachineInt,
         shlink :: Word32,
         shinfo :: Word32,
@@ -156,7 +159,6 @@ data ParseState = ParseState {
     }
 
 newtype Address = Address (Either Word32 Word64)
-newtype Offset = Offset (Either Word32 Word64)
 newtype MachineInt = MachineInt (Either Word32 Word64)
 type ParseElf a = F.Parse ParseState a
 
@@ -164,10 +166,6 @@ type ParseElf a = F.Parse ParseState a
 instance Show Address where
     show (Address (Left w)) = printf "0x%08X" w
     show (Address (Right w)) = printf "0x%016X" w
-
-instance Show Offset where
-    show (Offset (Left w)) = printf "%d" w
-    show (Offset (Right w)) = printf "%d" w
 
 instance Show MachineInt where 
     show (MachineInt (Left w)) = printf "%d" w
@@ -310,13 +308,26 @@ instance F.ParseStateAccess ParseState where
     
 
 {-- ELF Manipulation --}
-{-- | Get the size in byte of the pars file --}
+
+-- | Get the size in byte of the pars file
 fileSize :: ELFInfo -> Int
 fileSize ELFInfo {elfFileSize=s} = s
 
-{-- | Get the list of header program --}
+-- | Get the list of header program
 programHeaders :: ELFInfo -> [ELFProgramHeader]
 programHeaders ELFInfo{elfProgramHeaders=phs} = phs
+
+-- | Get the list of section header
+sectionHeaders :: ELFInfo -> [ELFSectionHeader]
+sectionHeaders ELFInfo{elfSectionHeaders=shs} = shs
+
+-- | Get the elf header
+header :: ELFInfo -> ELFHeader
+header ELFInfo{elfHeader=h} = h
+
+-- | Get the size in byte of the elf file
+size :: ELFInfo -> Int
+size ELFInfo{elfFileSize=s} = s
 
 -- | Get the specific section header
 -- 
@@ -443,16 +454,12 @@ parseHeader = do
         shsi <- F.parseHalf
         return ELFHeader {magic=m, format=f, fileEndianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
 
-parseOffset :: ParseElf Offset
+parseOffset :: ParseElf Int
 parseOffset = do
     state <- F.getState
     case elfSize state of 
-        F.S32 -> do 
-            w <- F.parseWord
-            return $ Offset (Left w)
-        F.S64 -> do
-            w <- F.parseGWord
-            return $ Offset (Right w) 
+        F.S32 -> fromIntegral <$> F.parseWord
+        F.S64 -> fromIntegral <$> F.parseGWord
 
 parseMachineInt :: ParseElf MachineInt
 parseMachineInt = do
@@ -572,10 +579,6 @@ machineToInt :: MachineInt -> Int
 machineToInt (MachineInt (Left i)) = fromIntegral i
 machineToInt (MachineInt (Right i)) = fromIntegral i
 
-offsetToInt :: Offset -> Int
-offsetToInt (Offset (Left i)) = fromIntegral i
-offsetToInt (Offset (Right i)) = fromIntegral i
-
 getSectionName :: ELFSectionHeader -> ParseElf ELFSectionHeader
 getSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
     F.pushForwardTo $ fromIntegral d
@@ -584,20 +587,17 @@ getSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
     return h {shname=ELFSectionName (Left string)} 
 
 getAllSectionName :: [ELFSectionHeader] -> ParseElf [ELFSectionHeader]
-getAllSectionName [] = return []
-getAllSectionName (x:xs) = do
-    sname <- getSectionName x
-    (sname:) <$> (getAllSectionName xs)
+getAllSectionName shds = forM shds getSectionName
 
 discoverSectionNames :: ELFInfo -> ParseElf ELFInfo
 discoverSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
-    F.moveTo $ offsetToInt (shoffset (s !! (fromIntegral (shstrndx h))))
+    F.moveTo $ shoffset (s !! (fromIntegral (shstrndx h)))
     sWithName <- getAllSectionName s
     return info {elfSectionHeaders=sWithName}
 
 parseStringSection :: ELFSectionHeader -> ParseElf String
 parseStringSection ELFSectionHeader {shoffset=off} = do
-    F.moveTo $ offsetToInt off
+    F.moveTo off
     parseString
     
 parseFile :: ParseElf ELFInfo
@@ -627,7 +627,7 @@ getSectionContent :: ELFInfo -> String -> ParseElf B.ByteString
 getSectionContent info string = do
     case sectionHeader info string of
         Just (ELFSectionHeader {shoffset=off, shsize=size}) -> do
-            F.moveTo $ offsetToInt off
+            F.moveTo off
             F.parseRaw $ machineToInt size
         Nothing -> F.bail "Section not found"
 

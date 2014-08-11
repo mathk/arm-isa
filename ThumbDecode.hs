@@ -373,7 +373,22 @@ parseHalfMiscellaneous = do
         [1,0,1,0,1,1,_] -> partialInstruction Revsh <*> parseRegisterToRegisterT1Args
         [1,0,1,1,_,_,_] -> partialInstruction Cbnz <*> parseCompareBranchT1Args
         [1,1,0,_,_,_,_] -> partialInstruction Pop <*> parsePopRegisterListT1Args
+        [1,1,1,0,_,_,_] -> partialInstruction Bkpt <*> pure NullArgs
+        [1,1,1,1,_,_,_] -> parseIfThenHint
         otherwise -> Undefined <$> instructionWord
+
+-- | If then and hints
+-- Section A6.2.5 second page of the reference manual.
+parseIfThenHint :: ThumbStreamState ArmInstr
+parseIfThenHint = do 
+    bitsField <- instructionArrayBits [7,6,5,4,3,2,1,0]
+    case bitsField of 
+        [0,0,0,0, 0,0,0,0] -> partialInstruction Nop <*> pure NoArgs
+        [0,0,0,1, 0,0,0,0] -> partialInstruction Yield <*> pure NoArgs
+        [0,0,1,0, 0,0,0,0] -> partialInstruction Wfe <*> pure NoArgs
+        [0,0,1,1, 0,0,0,0] -> partialInstruction Wfi <*> pure NoArgs
+        [0,1,0,0, 0,0,0,0] -> partialInstruction Sev <*> pure NoArgs
+        otherwise -> partialInstruction It <*> parseItBlockT1Args
 
 -- | Load and store a single data
 -- Section A6.2.4 of the reference manual.
@@ -856,6 +871,17 @@ parseShiftT2Args = RegisterShiftShiftedArgs <$>
         parseRegister 8 <*>
         parseRegister 0 <*>
         parseRegister 16
+
+parseItBlockT1Args :: ThumbStreamState ArgumentsInstruction
+parseItBlockT1Args = do
+    bitsField <- instructionArrayBits [3,2,1,0]
+    firstCond <- parseCondAt 4
+    cond <- instructionBits 4 1
+    case bitsField of 
+        [1,0,0,0] -> return $ ItBlockArgs firstCond []
+        [s,1,0,0] -> return $ ItBlockArgs firstCond [s==cond]
+        [s,t,1,0] -> return $ ItBlockArgs firstCond [s==cond,t==cond]
+        [s,t,f,1] -> return $ ItBlockArgs firstCond [s==cond,t==cond,f==cond]
 
 decodeImmediate12T2 :: ThumbStreamState Word32
 decodeImmediate12T2 = do
