@@ -18,11 +18,12 @@ import Data.Int (Int64)
 getStaticDir :: IO FilePath
 getStaticDir = return "./"
 
-data Options = GetSectionHeader | GetHeader | GetProgramHeader | GetHelp | StartGui
+data Options = GetSectionHeader | GetHeader | GetProgramHeader | GetSections | GetHelp | StartGui
 
 option :: [OptDescr Options]
 option = [ Option ['p'] ["program-headers"] (NoArg GetProgramHeader) "List program headers",
            Option ['s'] ["section-headers"] (NoArg GetSectionHeader) "List section headers",
+           Option ['S'] ["sections"] (NoArg GetSections) "List sections",
            Option ['e'] ["header"] (NoArg GetHeader) "Show the elf header",
            Option ['h'] ["help"] (NoArg GetHelp) "Show this message"]
 
@@ -35,6 +36,7 @@ parseArgs = do
         ([GetProgramHeader], file, []) -> return GetProgramHeader
         ([GetSectionHeader], file, []) -> return GetSectionHeader
         ([GetHeader], file,  []) -> return GetHeader
+        ([GetSections], file,  []) -> return GetSections
         ([GetHelp], _, _) -> help name
         (_, _, errs) -> die errs name
   where
@@ -59,6 +61,7 @@ main = do
                         GetProgramHeader -> putStrLn $ show (ELF.programHeaders value) 
                         GetSectionHeader -> putStrLn $ show (ELF.sectionHeaders value) 
                         GetHeader -> putStrLn $ show (ELF.header value) 
+                        GetSections -> putStrLn $ show (ELF.sections value)
                 Left d -> putStrLn d
 
 setup :: Window -> UI ()

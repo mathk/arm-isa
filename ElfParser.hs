@@ -13,7 +13,7 @@ module ElfParser
       ELFSectionHeader(..),
       sectionHeader, 
       -- * Accessing elf object
-      sectionHeaders, programHeaders, header, size,
+      sectionHeaders, programHeaders, header, size, sections,
       sectionName,
       parseHeader,
       parseFile, sectionContent,
@@ -132,11 +132,8 @@ data ELFProgramHeader = ELFProgramHeader {
         phalign :: Int64
     }
 
-data ELFSectionName = ELFSectionName (Either String Word32)
-    deriving(Eq)
-
 data ELFSectionHeader = ELFSectionHeader {
-        shname :: ELFSectionName,
+        shname :: Word32,
         shtype :: ELFSectionHeaderType,
         shflags :: Int64,
         shaddr :: Int64,
@@ -153,7 +150,7 @@ data ELFInfo = ELFInfo {
         elfProgramHeaders :: [ELFProgramHeader],
         elfSectionHeaders :: [ELFSectionHeader],
         elfFileSize :: Int,
-        elfSections :: Map.Map ELFSectionName ELFSection
+        elfSections :: Map.Map Word32 ELFSection
     }
 
 data ParseState = ParseState {
@@ -169,17 +166,17 @@ data ELFSection =
     -- ^ Section of type ELFSHTProgBits
     BinarySection B.ByteString |
     -- ^ Section of type ELFSHTStrTab
-    StringTableSection (Map.Map Int64 String)
+    StringTableSection (Map.Map Word32 String)
 
 type ParseElf a = F.Parse ParseState a
 
 {- Instance declaration -}
+instance Show ELFSection where
+    show (StringTableSection map) = (show map)
+    show (BinarySection _) = "Binary data..."
+
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
-
-instance Show ELFSectionName where
-    show (ELFSectionName (Left s)) = s
-    show (ELFSectionName (Right s)) = (show s)
 
 instance Show ELFHeaderVersion where
     show ELFDefaultVersion = "Original"
@@ -309,17 +306,6 @@ instance F.ParseStateAccess ParseState where
     pushOffset a@ParseState {elfOffsetState=x} off = a { elfOffset=off, elfOffsetState=(elfOffset a):x}
     popOffset a@ParseState {elfOffsetState=x:xs} = a {elfOffset=x, elfOffsetState=xs} 
     
-instance Ord ELFSectionName where
-    compare (ELFSectionName (Left _))  (ELFSectionName (Right _)) = LT
-    compare (ELFSectionName (Right _)) (ELFSectionName (Left _)) = GT
-    compare (ELFSectionName (Left l))  (ELFSectionName (Left r))
-        | l < r = LT
-        | l == r = EQ
-        | r > r = GT
-    compare (ELFSectionName (Right l)) (ELFSectionName (Right r))
-        | l < r = LT
-        | l == r = EQ
-        | r > r = GT
 {-- ELF Manipulation --}
 
 -- | Get the size in byte of the pars file
@@ -338,6 +324,9 @@ sectionHeaders ELFInfo{elfSectionHeaders=shs} = shs
 header :: ELFInfo -> ELFHeader
 header ELFInfo{elfHeader=h} = h
 
+sections :: ELFInfo -> Map.Map Word32 ELFSection
+sections ELFInfo{elfSections=s} = s
+
 -- | Get the size in byte of the elf file
 size :: ELFInfo -> Int
 size ELFInfo{elfFileSize=s} = s
@@ -348,14 +337,17 @@ size ELFInfo{elfFileSize=s} = s
 --
 -- > sectionHeader elfFile ".text" 
 sectionHeader :: ELFInfo -> String -> Maybe ELFSectionHeader
-sectionHeader ELFInfo {elfSectionHeaders=sh} searchName = find matchName sh
-    where matchName ELFSectionHeader {shname=ELFSectionName (Left name)} = name == searchName
-          matchName _ = False
+sectionHeader info@ELFInfo {elfSectionHeaders=sh} searchName = find matchName sh
+    where matchName sh = (sectionName info sh) == searchName
+
+stringTableSectionHeader :: ELFInfo -> ELFSectionHeader
+stringTableSectionHeader (ELFInfo {elfHeader=h, elfSectionHeaders=shs}) = shs !! (fromIntegral (shstrndx h))
 
 -- | Get the name of a section
-sectionName :: ELFSectionHeader -> String
-sectionName ELFSectionHeader {shname=ELFSectionName (Left name)} = name
-sectionName _ = "Unresolved name"
+sectionName :: ELFInfo -> ELFSectionHeader -> String
+sectionName (info@ELFInfo {elfSections=sections}) (ELFSectionHeader {shname=off}) = 
+    case (sections Map.! shname (stringTableSectionHeader info)) of
+        (StringTableSection st) -> st Map.! off
 
 {- ELf specific routine -}
 parseHeaderClass :: ParseElf F.AddressSize
@@ -551,7 +543,7 @@ parseSectionHeader = do
     shi <-  F.parseWord
     shaa <- parseMachineDepWord 
     shes <- parseMachineDepWord 
-    return ELFSectionHeader {shname=ELFSectionName (Right shn), shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes}
+    return ELFSectionHeader {shname=shn, shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes}
 
 parseArray :: ParseElf a -> Int -> ParseElf [a]
 parseArray parser 0 = return []
@@ -567,26 +559,54 @@ parseProgramHeaders = parseArray parseProgramHeader
 parseSectionHeaders :: Int -> ParseElf [ELFSectionHeader]
 parseSectionHeaders = parseArray parseSectionHeader
 
-getSectionName :: ELFSectionHeader -> ParseElf ELFSectionHeader
-getSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
-    F.pushForwardTo $ fromIntegral d
-    string <- parseString
-    F.popFrom 
-    return h {shname=ELFSectionName (Left string)} 
-
-getAllSectionName :: [ELFSectionHeader] -> ParseElf [ELFSectionHeader]
-getAllSectionName shds = forM shds getSectionName
-
 -- | Move to the section that contain the name of all section
 moveToStringSectionName :: ELFInfo -> ParseElf ()
 moveToStringSectionName (ELFInfo {elfHeader=h, elfSectionHeaders=shs}) =
     F.moveTo $ shoffset (shs !! (fromIntegral (shstrndx h)))
 
-discoverSectionNames :: ELFInfo -> ParseElf ELFInfo
-discoverSectionNames info@ELFInfo {elfSectionHeaders=s} = do
-    moveToStringSectionName info
-    sWithName <- getAllSectionName s
-    return info {elfSectionHeaders=sWithName}
+sectionContent :: ELFInfo -> String -> ParseElf (Word32, B.ByteString)
+sectionContent info string = do
+    case sectionHeader info string of
+        Just (ELFSectionHeader {shname=n, shoffset=off, shsize=size}) -> do
+            F.moveTo off
+            b <- F.parseRaw size
+            return (n,b) 
+        Nothing -> F.bail "Section not found"
+
+stringsMapUpTo :: Int64 -> Int64 -> ParseElf (Map.Map Word32 String)
+stringsMapUpTo beginOff maxOff = do
+    currentOff <- F.offset <$> F.getState
+    if currentOff + 1 >= maxOff
+    then return (Map.singleton 0 "NullSection")
+    else do 
+        F.moveTo $ currentOff + 1
+        Map.insert (fromIntegral (currentOff + 1 - beginOff)) <$> parseString <*> stringsMapUpTo beginOff maxOff
+
+parseStringTable :: ELFSectionHeader -> ParseElf ELFSection
+parseStringTable (ELFSectionHeader {shtype=ELFSHTStrTab, shoffset=offset, shsize=size}) = do
+    F.moveTo offset
+    map <- stringsMapUpTo offset (size+offset)
+    return $ StringTableSection map
+    
+-- | Set the name of the section
+setSectionName :: StateT ELFInfo (F.Parse ParseState) ()
+setSectionName = do
+    info@ELFInfo{elfSections=s} <- get
+    section <- lift $ parseStringTable (stringTableSectionHeader info)
+    put $ info {elfSections=Map.insert ((shname . stringTableSectionHeader) info) section s}
+
+-- | Get the .text section and store it into the ELFInfo
+setTextSection :: StateT ELFInfo (F.Parse ParseState) ()
+setTextSection = do
+    info@ELFInfo{elfSections=s} <- get
+    (n,b) <- lift (sectionContent info ".text")
+    put $ info {elfSections=(Map.insert n (BinarySection b) s)}
+
+-- | Post initialise the info data
+annotateELFInfo :: StateT ELFInfo (F.Parse ParseState) ()
+annotateELFInfo = do
+    setSectionName
+    setTextSection
 
 parseFile :: ParseElf ELFInfo
 parseFile = do
@@ -596,47 +616,7 @@ parseFile = do
     F.moveTo $ shoff hdr
     shs <- parseSectionHeaders $ fromIntegral (shnum hdr)
     state <- F.getState
-    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(fromIntegral $ B.length $ F.string state), elfSections=Map.empty }
-
-isCommentSection :: ELFSectionHeader -> Bool
-isCommentSection ELFSectionHeader {shname=ELFSectionName (Left s)}
-    | s == ".comment"   = True
-    | otherwise         = False
-isCommentSection ELFSectionHeader {shname=ELFSectionName (Right s)} = False
-
-
-sectionContent :: ELFInfo -> String -> ParseElf (ELFSectionName, B.ByteString)
-sectionContent info string = do
-    case sectionHeader info string of
-        Just (ELFSectionHeader {shname=n, shoffset=off, shsize=size}) -> do
-            F.moveTo off
-            b <- F.parseRaw size
-            return (n,b) 
-        Nothing -> F.bail "Section not found"
-
-
-stringsMapUpTo :: Int64 -> ParseElf (Map.Map Int64 String)
-stringsMapUpTo off = do
-    currentOff <- F.offset <$> F.getState
-    if currentOff + 1 >= off
-    then return Map.empty
-    else do 
-        F.moveTo $ currentOff + 1
-        Map.insert (currentOff + 1) <$> parseString <*> stringsMapUpTo off
-
-parseStringTable :: ELFSectionHeader -> ParseElf ELFSection
-parseStringTable (ELFSectionHeader {shtype=ELFSHTStrTab, shoffset=offset, shsize=size}) = do
-    F.moveTo offset
-    map <- stringsMapUpTo (size+offset)
-    return $ StringTableSection map
-    
-
--- | Get the .text section and store it into the ELFInfo
-setTextSection :: StateT ELFInfo (F.Parse ParseState) ()
-setTextSection = do
-    info@ELFInfo{elfSections=s} <- get
-    (n,b) <- lift (sectionContent info ".text")
-    put $ info {elfSections=(Map.insert n (BinarySection b) s)}
+    execStateT annotateELFInfo ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(fromIntegral $ B.length $ F.string state), elfSections=Map.empty }
 
 parse :: ParseElf a -> B.ByteString -> Either String a 
 parse parser string = F.parse ParseState {elfOffset=0, elfSize=F.S32, elfEndianness=F.LittleEndian, elfString=string, elfOffsetState=[] } parser string
