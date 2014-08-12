@@ -16,7 +16,7 @@ module ElfParser
       sectionHeaders, programHeaders, header, size,
       sectionName,
       parseHeader,
-      parseFile, getSectionContent,
+      parseFile, sectionContent,
       addressToInt,
       parse
     ) where
@@ -24,10 +24,14 @@ module ElfParser
 import qualified Data.ByteString as B
 import Control.Applicative
 import Control.Monad (forM)
+import Control.Monad.State
+import Control.Monad.Trans
 import qualified FileDecoding as F
+import qualified Data.Map as Map
 import Text.Printf
 import Data.Word
 import Data.List
+import Data.Ord
 
 {- ELF Data type -}
 data ELFHeaderMagic = ELFHeaderMagic Word8 String
@@ -129,6 +133,7 @@ data ELFProgramHeader = ELFProgramHeader {
     }
 
 data ELFSectionName = ELFSectionName (Either String Word32)
+    deriving(Eq)
 
 data ELFSectionHeader = ELFSectionHeader {
         shname :: ELFSectionName,
@@ -147,8 +152,9 @@ data ELFInfo = ELFInfo {
         elfHeader :: ELFHeader,
         elfProgramHeaders :: [ELFProgramHeader],
         elfSectionHeaders :: [ELFSectionHeader],
-        elfFileSize :: Int
-    } deriving (Show)
+        elfFileSize :: Int,
+        elfSections :: Map.Map ELFSectionName ELFSection
+    }
 
 data ParseState = ParseState {
         elfOffset :: Int,
@@ -157,6 +163,8 @@ data ParseState = ParseState {
         elfSize :: F.AddressSize,
         elfOffsetState :: [Int]
     }
+
+data ELFSection = BinarySection B.ByteString
 
 newtype Address = Address (Either Word32 Word64)
 newtype MachineInt = MachineInt (Either Word32 Word64)
@@ -306,7 +314,17 @@ instance F.ParseStateAccess ParseState where
     pushOffset a@ParseState {elfOffsetState=x} off = a { elfOffset=off, elfOffsetState=(elfOffset a):x}
     popOffset a@ParseState {elfOffsetState=x:xs} = a {elfOffset=x, elfOffsetState=xs} 
     
-
+instance Ord ELFSectionName where
+    compare (ELFSectionName (Left _))  (ELFSectionName (Right _)) = LT
+    compare (ELFSectionName (Right _)) (ELFSectionName (Left _)) = GT
+    compare (ELFSectionName (Left l))  (ELFSectionName (Left r))
+        | l < r = LT
+        | l == r = EQ
+        | r > r = GT
+    compare (ELFSectionName (Right l)) (ELFSectionName (Right r))
+        | l < r = LT
+        | l == r = EQ
+        | r > r = GT
 {-- ELF Manipulation --}
 
 -- | Get the size in byte of the pars file
@@ -608,7 +626,7 @@ parseFile = do
     F.moveTo $ addressToInt (shoff hdr)
     shs <- parseSectionHeaders $ fromIntegral (shnum hdr)
     state <- F.getState
-    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(fromIntegral $ B.length $ F.string state)}
+    discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(fromIntegral $ B.length $ F.string state), elfSections=Map.empty }
 
 isCommentSection :: ELFSectionHeader -> Bool
 isCommentSection ELFSectionHeader {shname=ELFSectionName (Left s)}
@@ -623,16 +641,21 @@ dumpComment ELFInfo {elfSectionHeaders=shs} = do
         Just s -> parseStringSection s
         Nothing -> F.bail "Comment not found"
 
-getSectionContent :: ELFInfo -> String -> ParseElf B.ByteString
-getSectionContent info string = do
+sectionContent :: ELFInfo -> String -> ParseElf (ELFSectionName, B.ByteString)
+sectionContent info string = do
     case sectionHeader info string of
-        Just (ELFSectionHeader {shoffset=off, shsize=size}) -> do
+        Just (ELFSectionHeader {shname=n, shoffset=off, shsize=size}) -> do
             F.moveTo off
-            F.parseRaw $ machineToInt size
+            b <- F.parseRaw $ machineToInt size
+            return (n,b) 
         Nothing -> F.bail "Section not found"
+
+setTextSection :: StateT ELFInfo (F.Parse ParseState) ()
+setTextSection = do
+    info@ELFInfo{elfSections=s} <- get
+    (n,b) <- lift (sectionContent info ".text")
+    put $ info {elfSections=(Map.insert n (BinarySection b) s)}
 
 parse :: ParseElf a -> B.ByteString -> Either String a 
 parse parser string = F.parse ParseState {elfOffset=0, elfSize=F.S32, elfEndianness=F.LittleEndian, elfString=string, elfOffsetState=[] } parser string
-
-
 

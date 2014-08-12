@@ -144,8 +144,8 @@ displayElfCanvas info = do
 
 displayElfTextSection :: ELF.ELFInfo -> B.ByteString -> [UI Element]
 displayElfTextSection info s =
-    case ELF.parse (ELF.getSectionContent info ".text") s of
-        Right stream -> map toUi (Thumb.parseStream stream)
+    case ELF.parse (ELF.sectionContent info ".text") s of
+        Right (n, stream) -> map toUi (Thumb.parseStream stream)
       where toUi armInst = UI.p # set UI.text (show armInst)
 
 normalizeY :: Int -> Int -> Double
