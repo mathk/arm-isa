@@ -347,7 +347,8 @@ stringTableSectionHeader (ELFInfo {elfHeader=h, elfSectionHeaders=shs}) = shs !!
 sectionName :: ELFInfo -> ELFSectionHeader -> String
 sectionName (info@ELFInfo {elfSections=sections}) (ELFSectionHeader {shname=off}) = 
     case (sections Map.! shname (stringTableSectionHeader info)) of
-        (StringTableSection st) -> st Map.! off
+        (StringTableSection st) -> case (Map.lookupLE off st) of
+            Just (k,v) -> drop (fromIntegral (off - k)) v
 
 {- ELf specific routine -}
 parseHeaderClass :: ParseElf F.AddressSize
