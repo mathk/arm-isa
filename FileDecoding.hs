@@ -44,16 +44,16 @@ import Data.Char (chr, isDigit, isSpace, isAlphaNum)
 import Data.Int (Int64)
 import Text.Printf
 import Data.Word
-
+import Data.Int (Int64)
 {-| 
     Class used to carry the state along when parsing the file.
  -}
 class ParseStateAccess a where
-    offset :: a -> Int
+    offset :: a -> Int64
     string :: a -> B.ByteString
     endianness :: a -> Endianness
-    putOffset :: a -> Int -> a
-    pushOffset :: a -> Int -> a
+    putOffset :: a -> Int64 -> a
+    pushOffset :: a -> Int64 -> a
     popOffset :: a -> a
 
 data Endianness = BigEndian | LittleEndian
@@ -103,7 +103,7 @@ getState = Parse (\s -> Right (s, s))
 putState :: a -> Parse a ()
 putState s = Parse (\_ -> Right((), s))
 
-isInRange :: Int -> B.ByteString -> Bool
+isInRange :: Int64 -> B.ByteString -> Bool
 isInRange n string = n >= 0 && fromIntegral (B.length string) < n 
 
 {-|
@@ -181,24 +181,24 @@ skip n
 {-|
     Move to an arbitrary location in the file. 
  -}
-moveTo :: (ParseStateAccess s) => Int -> Parse s ()
+moveTo :: (ParseStateAccess s) => Int64 -> Parse s ()
 moveTo n = do
     state <- getState
     assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
     putState $ putOffset state n
 
-forwardTo :: (ParseStateAccess s) => Int -> Parse s ()
+forwardTo :: (ParseStateAccess s) => Int64 -> Parse s ()
 forwardTo n = do
     state <- getState
     moveTo (n +(offset state))
 
-pushTo :: (ParseStateAccess s) => Int -> Parse s ()
+pushTo :: (ParseStateAccess s) => Int64 -> Parse s ()
 pushTo n = do
     state <- getState
     assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
     putState $ pushOffset state n
 
-pushForwardTo :: (ParseStateAccess s) => Int -> Parse s ()
+pushForwardTo :: (ParseStateAccess s) => Int64 -> Parse s ()
 pushForwardTo n = do
     state <- getState
     pushTo (n+(offset state))
@@ -235,13 +235,13 @@ parseWhile p = (fmap p <$> peekByte) ==> \mp ->
                     (b:) <$> parseWhile p
                else identity []
 
-parseCount :: (ParseStateAccess s) => Int -> Parse s [Word8]
+parseCount :: (ParseStateAccess s) => Int64 -> Parse s [Word8]
 parseCount 0 = identity []
 parseCount n = do
     b <- parseByte
     (b:) <$> parseCount (n-1)
 
-parseRaw :: (ParseStateAccess s) => Int -> Parse s B.ByteString
+parseRaw :: (ParseStateAccess s) => Int64 -> Parse s B.ByteString
 parseRaw n = B.pack <$> parseCount n
 
 

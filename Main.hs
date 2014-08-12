@@ -13,6 +13,7 @@ import Data.Monoid
 import qualified Control.Monad.State as S
 import qualified Data.Map as Map
 import Text.Printf
+import Data.Int (Int64)
 
 getStaticDir :: IO FilePath
 getStaticDir = return "./"
@@ -148,10 +149,10 @@ displayElfTextSection info s =
         Right (n, stream) -> map toUi (Thumb.parseStream stream)
       where toUi armInst = UI.p # set UI.text (show armInst)
 
-normalizeY :: Int -> Int -> Double
+normalizeY :: Int64 -> Int -> Double
 normalizeY value max= (((fromIntegral value) * 1640.0) / (fromIntegral max)) 
 
-regionSeparator :: Int -> Int -> UI.DrawingPath
+regionSeparator :: Int64 -> Int -> UI.DrawingPath
 regionSeparator offset size = UI.line (0.0,offsetCoord) (300.0,offsetCoord)
     where offsetCoord = normalizeY offset size
 
@@ -213,7 +214,7 @@ neighbour :: Double -> Map.Map Double Double -> Int -> (Double,Double)
 neighbour key mapOffset max
     | mapSize == 1                  = (0.0                      , valueAt 0)
     | keyIndex == 0 && mapSize > 1  = (0.0                      , valueAt 1)
-    | keyIndex == mapSize - 1       = (valueAt $ mapSize - 1    , (normalizeY max max))
+    | keyIndex == mapSize - 1       = (valueAt $ mapSize - 1    , (normalizeY (fromIntegral max) max))
     | otherwise                     = (valueAt $ keyIndex - 1   , min 1640.0 (valueAt $ keyIndex + 1))
     where keyIndex = Map.findIndex key mapOffset
           mapSize = Map.size mapOffset

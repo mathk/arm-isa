@@ -32,6 +32,7 @@ import Text.Printf
 import Data.Word
 import Data.List
 import Data.Ord
+import Data.Int (Int64)
 
 {- ELF Data type -}
 data ELFHeaderMagic = ELFHeaderMagic Word8 String
@@ -123,7 +124,7 @@ data ELFHeader = ELFHeader {
 
 data ELFProgramHeader = ELFProgramHeader {
         phtype :: ELFProgramHeaderType,
-        phoffset :: Int,
+        phoffset :: Int64,
         phvaddr :: Address,
         phpaddr :: Address,
         phfilesz :: MachineInt,
@@ -140,7 +141,7 @@ data ELFSectionHeader = ELFSectionHeader {
         shtype :: ELFSectionHeaderType,
         shflags :: MachineInt,
         shaddr :: Address,
-        shoffset :: Int,
+        shoffset :: Int64,
         shsize :: MachineInt,
         shlink :: Word32,
         shinfo :: Word32,
@@ -157,11 +158,11 @@ data ELFInfo = ELFInfo {
     }
 
 data ParseState = ParseState {
-        elfOffset :: Int,
+        elfOffset :: Int64,
         elfString :: B.ByteString,
         elfEndianness :: F.Endianness,
         elfSize :: F.AddressSize,
-        elfOffsetState :: [Int]
+        elfOffsetState :: [Int64]
     }
 
 data ELFSection = BinarySection B.ByteString
@@ -472,7 +473,7 @@ parseHeader = do
         shsi <- F.parseHalf
         return ELFHeader {magic=m, format=f, fileEndianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
 
-parseOffset :: ParseElf Int
+parseOffset :: ParseElf Int64
 parseOffset = do
     state <- F.getState
     case elfSize state of 
@@ -589,11 +590,11 @@ parseProgramHeaders = parseArray parseProgramHeader
 parseSectionHeaders :: Int -> ParseElf [ELFSectionHeader]
 parseSectionHeaders = parseArray parseSectionHeader
 
-addressToInt :: Address -> Int
+addressToInt :: Address -> Int64
 addressToInt (Address (Left i)) = fromIntegral i
 addressToInt (Address (Right i)) = fromIntegral i
 
-machineToInt :: MachineInt -> Int
+machineToInt :: MachineInt -> Int64
 machineToInt (MachineInt (Left i)) = fromIntegral i
 machineToInt (MachineInt (Right i)) = fromIntegral i
 
