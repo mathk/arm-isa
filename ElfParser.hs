@@ -164,7 +164,12 @@ data ParseState = ParseState {
         elfOffsetState :: [Int64]
     }
 
-data ELFSection = BinarySection B.ByteString
+-- | Represent content of a section
+data ELFSection = 
+    -- ^ Section of type ELFSHTProgBits
+    BinarySection B.ByteString |
+    -- ^ Section of type ELFSHTStrTab
+    StringTableSection (Map.Map Int64 String)
 
 type ParseElf a = F.Parse ParseState a
 
@@ -572,17 +577,17 @@ getSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
 getAllSectionName :: [ELFSectionHeader] -> ParseElf [ELFSectionHeader]
 getAllSectionName shds = forM shds getSectionName
 
+-- | Move to the section that contain the name of all section
+moveToStringSectionName :: ELFInfo -> ParseElf ()
+moveToStringSectionName (ELFInfo {elfHeader=h, elfSectionHeaders=shs}) =
+    F.moveTo $ shoffset (shs !! (fromIntegral (shstrndx h)))
+
 discoverSectionNames :: ELFInfo -> ParseElf ELFInfo
-discoverSectionNames info@ELFInfo {elfHeader=h, elfSectionHeaders=s} = do
-    F.moveTo $ shoffset (s !! (fromIntegral (shstrndx h)))
+discoverSectionNames info@ELFInfo {elfSectionHeaders=s} = do
+    moveToStringSectionName info
     sWithName <- getAllSectionName s
     return info {elfSectionHeaders=sWithName}
 
-parseStringSection :: ELFSectionHeader -> ParseElf String
-parseStringSection ELFSectionHeader {shoffset=off} = do
-    F.moveTo off
-    parseString
-    
 parseFile :: ParseElf ELFInfo
 parseFile = do
     hdr <- parseHeader
@@ -600,12 +605,6 @@ isCommentSection ELFSectionHeader {shname=ELFSectionName (Left s)}
 isCommentSection ELFSectionHeader {shname=ELFSectionName (Right s)} = False
 
 
-dumpComment :: ELFInfo -> ParseElf String
-dumpComment ELFInfo {elfSectionHeaders=shs} = do
-    case find isCommentSection  shs of
-        Just s -> parseStringSection s
-        Nothing -> F.bail "Comment not found"
-
 sectionContent :: ELFInfo -> String -> ParseElf (ELFSectionName, B.ByteString)
 sectionContent info string = do
     case sectionHeader info string of
@@ -615,6 +614,24 @@ sectionContent info string = do
             return (n,b) 
         Nothing -> F.bail "Section not found"
 
+
+stringsMapUpTo :: Int64 -> ParseElf (Map.Map Int64 String)
+stringsMapUpTo off = do
+    currentOff <- F.offset <$> F.getState
+    if currentOff + 1 >= off
+    then return Map.empty
+    else do 
+        F.moveTo $ currentOff + 1
+        Map.insert (currentOff + 1) <$> parseString <*> stringsMapUpTo off
+
+parseStringTable :: ELFSectionHeader -> ParseElf ELFSection
+parseStringTable (ELFSectionHeader {shtype=ELFSHTStrTab, shoffset=offset, shsize=size}) = do
+    F.moveTo offset
+    map <- stringsMapUpTo (size+offset)
+    return $ StringTableSection map
+    
+
+-- | Get the .text section and store it into the ELFInfo
 setTextSection :: StateT ELFInfo (F.Parse ParseState) ()
 setTextSection = do
     info@ELFInfo{elfSections=s} <- get

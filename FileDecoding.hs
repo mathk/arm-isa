@@ -32,13 +32,15 @@ module FileDecoding
       popFrom,
       getState,
       putState,
-      assert
+      assert,
+      canMoveTo,
     ) where
 
 -- http://www.haskell.org/haskellwiki/Dealing_with_binary_data
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 import Control.Applicative
+import Control.Monad
 import Data.Bits
 import Data.Char (chr, isDigit, isSpace, isAlphaNum)
 import Data.Int (Int64)
@@ -96,6 +98,10 @@ instance (ParseStateAccess a) => Monad (Parse a) where
     (>>=) = (==>)
     fail = bail
 
+instance (ParseStateAccess a) => Applicative (Parse a) where
+    pure = identity
+    (<*>) = ap
+
 {- Parser Utils -}
 getState :: Parse a a
 getState = Parse (\s -> Right (s, s))
@@ -104,7 +110,7 @@ putState :: a -> Parse a ()
 putState s = Parse (\_ -> Right((), s))
 
 isInRange :: Int64 -> B.ByteString -> Bool
-isInRange n string = n >= 0 && fromIntegral (B.length string) < n 
+isInRange n string = n >= 0 && fromIntegral (B.length string) > n 
 
 {-|
     Stop the parser and report an error.
@@ -181,10 +187,17 @@ skip n
 {-|
     Move to an arbitrary location in the file. 
  -}
+
+-- | Tell if we can move to a specific location in the byte stream
+canMoveTo :: (ParseStateAccess s) => Int64 -> Parse s Bool
+canMoveTo n = do
+    state <- getState
+    return $ isInRange n (string state)
+
 moveTo :: (ParseStateAccess s) => Int64 -> Parse s ()
 moveTo n = do
     state <- getState
-    assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
+    assert (isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
     putState $ putOffset state n
 
 forwardTo :: (ParseStateAccess s) => Int64 -> Parse s ()
@@ -195,7 +208,7 @@ forwardTo n = do
 pushTo :: (ParseStateAccess s) => Int64 -> Parse s ()
 pushTo n = do
     state <- getState
-    assert (not $ isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
+    assert (isInRange n (string state))  (printf "Displacement is out of range %d. Expected [0,%d]" n (B.length $ string state))
     putState $ pushOffset state n
 
 pushForwardTo :: (ParseStateAccess s) => Int64 -> Parse s ()
