@@ -17,7 +17,6 @@ module ElfParser
       sectionName,
       parseHeader,
       parseFile, sectionContent,
-      addressToInt,
       parse
     ) where
 
@@ -110,9 +109,9 @@ data ELFHeader = ELFHeader {
         osabi :: ELFHeaderABI,
         objectType :: ELFHeaderType,
         machine ::  ELFHeaderMachine,
-        entry :: Address,
-        phoff :: Address,
-        shoff :: Address,
+        entry :: Int64,
+        phoff :: Int64,
+        shoff :: Int64,
         flags :: Word32,
         hsize :: Word16,
         phentsize :: Word16,
@@ -125,12 +124,12 @@ data ELFHeader = ELFHeader {
 data ELFProgramHeader = ELFProgramHeader {
         phtype :: ELFProgramHeaderType,
         phoffset :: Int64,
-        phvaddr :: Address,
-        phpaddr :: Address,
-        phfilesz :: MachineInt,
-        phmemsz :: MachineInt,
-        phflags :: MachineInt,
-        phalign :: MachineInt
+        phvaddr :: Int64,
+        phpaddr :: Int64,
+        phfilesz :: Int64,
+        phmemsz :: Int64,
+        phflags :: Int64,
+        phalign :: Int64
     }
 
 data ELFSectionName = ELFSectionName (Either String Word32)
@@ -139,14 +138,14 @@ data ELFSectionName = ELFSectionName (Either String Word32)
 data ELFSectionHeader = ELFSectionHeader {
         shname :: ELFSectionName,
         shtype :: ELFSectionHeaderType,
-        shflags :: MachineInt,
-        shaddr :: Address,
+        shflags :: Int64,
+        shaddr :: Int64,
         shoffset :: Int64,
-        shsize :: MachineInt,
+        shsize :: Int64,
         shlink :: Word32,
         shinfo :: Word32,
-        shaddralign :: MachineInt,
-        shentrysize :: MachineInt
+        shaddralign :: Int64,
+        shentrysize :: Int64
     }
 
 data ELFInfo = ELFInfo {
@@ -167,19 +166,9 @@ data ParseState = ParseState {
 
 data ELFSection = BinarySection B.ByteString
 
-newtype Address = Address (Either Word32 Word64)
-newtype MachineInt = MachineInt (Either Word32 Word64)
 type ParseElf a = F.Parse ParseState a
 
 {- Instance declaration -}
-instance Show Address where
-    show (Address (Left w)) = printf "0x%08X" w
-    show (Address (Right w)) = printf "0x%016X" w
-
-instance Show MachineInt where 
-    show (MachineInt (Left w)) = printf "%d" w
-    show (MachineInt (Right w)) = printf "%d" w
-
 instance Show ELFHeaderMagic where
     show (ELFHeaderMagic w s) = printf "0x%02X %s" w s
 
@@ -437,59 +426,42 @@ parseHeaderABI = do
     b <- F.parseByte
     return (ELFHeaderABI b)
 
-parseAddress :: ParseElf Address
-parseAddress = do
-    state <- F.getState
-    case elfSize state of
-        F.S32 -> do
-            w <- F.parseWord
-            return $ Address (Left w)
-        F.S64 -> do
-            w <- F.parseGWord
-            return $ Address (Right w)
 {-|
     This funcition parse the ELF header extracting all the usefull information
  -}
 parseHeader :: ParseElf ELFHeader
 parseHeader = do
-        m <- parseHeaderMagic
-        f <- parseHeaderClass
+        m <-    parseHeaderMagic
+        f <-    parseHeaderClass
         endian <- parseHeaderEndianness
-        v <- parseHeaderVersion
-        abi <- parseHeaderABI
+        v <-    parseHeaderVersion
+        abi <-  parseHeaderABI
         F.skip 8
-        t <- parseHeaderType
+        t <-    parseHeaderType
         arch <- parseHeaderMachine
         F.skip 4
-        e <- parseAddress
-        ph <- parseAddress
-        sh <- parseAddress
+        e <-    parseMachineDepWord
+        ph <-   parseMachineDepWord 
+        sh <-   parseMachineDepWord 
         flgs <- F.parseWord
-        hs <- F.parseHalf
+        hs <-   F.parseHalf
         phes <- F.parseHalf
-        phn <- F.parseHalf
+        phn <-  F.parseHalf
         shes <- F.parseHalf
-        shn <- F.parseHalf
+        shn <-  F.parseHalf
         shsi <- F.parseHalf
         return ELFHeader {magic=m, format=f, fileEndianness=endian, version=v, osabi=abi, objectType=t, machine=arch, entry=e, phoff=ph, shoff=sh, flags=flgs, hsize=hs, phentsize=phes, phnum=phn, shentsize=shes, shnum=shn, shstrndx=shsi}
 
-parseOffset :: ParseElf Int64
-parseOffset = do
+-- | Either a 4 byte or 8 byte word 
+--   depending on the machine word size.
+--   This can be used to parse address and offset
+parseMachineDepWord :: ParseElf Int64
+parseMachineDepWord = do
     state <- F.getState
     case elfSize state of 
         F.S32 -> fromIntegral <$> F.parseWord
         F.S64 -> fromIntegral <$> F.parseGWord
 
-parseMachineInt :: ParseElf MachineInt
-parseMachineInt = do
-    state <- F.getState
-    case elfSize state of 
-        F.S32 -> do 
-            w <- F.parseWord
-            return $ MachineInt (Left w)
-        F.S64 -> do
-            w <- F.parseGWord
-            return $ MachineInt (Right w) 
 
 parseProgramHeaderType :: ParseElf ELFProgramHeaderType
 parseProgramHeaderType = do
@@ -552,28 +524,28 @@ parseString = fmap F.w2c <$> F.parseWhile (\w -> not $ w == 0)
 
 parseProgramHeader :: ParseElf ELFProgramHeader
 parseProgramHeader = do
-    pht <- parseProgramHeaderType
-    pho <- parseOffset
-    phv <- parseAddress
-    php <- parseAddress
-    phfs <- parseMachineInt
-    phm <- parseMachineInt
-    phf <- parseMachineInt
-    pha <- parseMachineInt
+    pht <-  parseProgramHeaderType
+    pho <-  parseMachineDepWord 
+    phv <-  parseMachineDepWord 
+    php <-  parseMachineDepWord 
+    phfs <- parseMachineDepWord 
+    phm <-  parseMachineDepWord 
+    phf <-  parseMachineDepWord 
+    pha <-  parseMachineDepWord 
     return ELFProgramHeader {phtype=pht, phoffset=pho, phvaddr=phv, phpaddr=php, phfilesz=phfs, phmemsz=phm, phflags=phf, phalign=pha}
 
 parseSectionHeader :: ParseElf ELFSectionHeader
 parseSectionHeader = do
-    shn <- F.parseWord
-    sht <- parseSectionHeaderType
-    shflgs <- parseMachineInt
-    sha <- parseAddress
-    sho <-parseOffset
-    shs <- parseMachineInt
-    shl <- F.parseWord
-    shi <- F.parseWord
-    shaa <- parseMachineInt
-    shes <- parseMachineInt
+    shn <-  F.parseWord
+    sht <-  parseSectionHeaderType
+    shflgs <- parseMachineDepWord
+    sha <-  parseMachineDepWord
+    sho <-  parseMachineDepWord 
+    shs <-  parseMachineDepWord 
+    shl <-  F.parseWord
+    shi <-  F.parseWord
+    shaa <- parseMachineDepWord 
+    shes <- parseMachineDepWord 
     return ELFSectionHeader {shname=ELFSectionName (Right shn), shtype=sht, shflags=shflgs, shaddr=sha, shoffset=sho, shsize=shs, shlink=shl, shinfo=shi, shaddralign=shaa, shentrysize=shes}
 
 parseArray :: ParseElf a -> Int -> ParseElf [a]
@@ -589,14 +561,6 @@ parseProgramHeaders = parseArray parseProgramHeader
 
 parseSectionHeaders :: Int -> ParseElf [ELFSectionHeader]
 parseSectionHeaders = parseArray parseSectionHeader
-
-addressToInt :: Address -> Int64
-addressToInt (Address (Left i)) = fromIntegral i
-addressToInt (Address (Right i)) = fromIntegral i
-
-machineToInt :: MachineInt -> Int64
-machineToInt (MachineInt (Left i)) = fromIntegral i
-machineToInt (MachineInt (Right i)) = fromIntegral i
 
 getSectionName :: ELFSectionHeader -> ParseElf ELFSectionHeader
 getSectionName h@ELFSectionHeader {shname=ELFSectionName (Right d)} = do
@@ -622,9 +586,9 @@ parseStringSection ELFSectionHeader {shoffset=off} = do
 parseFile :: ParseElf ELFInfo
 parseFile = do
     hdr <- parseHeader
-    F.moveTo $ addressToInt (phoff hdr)
+    F.moveTo $ phoff hdr
     phs <- parseProgramHeaders $ fromIntegral (phnum hdr)
-    F.moveTo $ addressToInt (shoff hdr)
+    F.moveTo $ shoff hdr
     shs <- parseSectionHeaders $ fromIntegral (shnum hdr)
     state <- F.getState
     discoverSectionNames $ ELFInfo {elfHeader=hdr, elfProgramHeaders=phs, elfSectionHeaders=shs, elfFileSize=(fromIntegral $ B.length $ F.string state), elfSections=Map.empty }
@@ -647,7 +611,7 @@ sectionContent info string = do
     case sectionHeader info string of
         Just (ELFSectionHeader {shname=n, shoffset=off, shsize=size}) -> do
             F.moveTo off
-            b <- F.parseRaw $ machineToInt size
+            b <- F.parseRaw size
             return (n,b) 
         Nothing -> F.bail "Section not found"
 
