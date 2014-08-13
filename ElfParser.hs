@@ -145,6 +145,15 @@ data ELFSectionHeader = ELFSectionHeader {
         shentrysize :: Int64
     }
 
+data ELFSymbol = ELFSymbol {
+        symname :: Word32,
+        symaddr :: Int64,
+        symsize :: Int64,
+        syminfo :: Word8,
+        symother :: Word8,
+        symndx  :: Word16
+}
+
 data ELFInfo = ELFInfo {
         elfHeader :: ELFHeader,
         elfProgramHeaders :: [ELFProgramHeader],
@@ -153,12 +162,6 @@ data ELFInfo = ELFInfo {
         elfSections :: Map.Map Word32 ELFSection
     }
 
-data ELFSymbol = ELFSymbol {
-        symname :: Word32,
-        symaddr :: Int64,
-        symsize :: Int64,
-       
-}
 
 data ParseState = ParseState {
         elfOffset :: Int64,
@@ -527,14 +530,14 @@ parseSectionHeaderType = do
 parseString :: ParseElf String
 parseString = fmap F.w2c <$> F.parseWhile (\w -> not $ w == 0)
 
-parseSymbol :: NotParsed ELFSymbol
+parseSymbol :: ParseElf ELFSymbol
 parseSymbol = ELFSymbol <$>
-    parseWord <*>
+    F.parseWord <*>
     parseMachineDepWord <*>
     parseMachineDepWord <*>
-    parseByte <*>
-    parseByte <*>
-    parseHalf
+    F.parseByte <*>
+    F.parseByte <*>
+    F.parseHalf
 
 parseProgramHeader :: ParseElf ELFProgramHeader
 parseProgramHeader = do
