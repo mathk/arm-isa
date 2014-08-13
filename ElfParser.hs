@@ -607,6 +607,10 @@ parseStringTable (ELFSectionHeader {shtype=ELFSHTStrTab, shoffset=offset, shsize
     F.moveTo offset
     map <- stringsMapUpTo offset (size+offset)
     return $ StringTableSection map
+
+-- | Add a section to the state
+addSection :: ELFSectionHeader -> ELFSection -> StateT ELFInfo (F.Parse ParseState) ()
+addSection h s = modify (\info@ELFInfo{elfSections=map} -> info {elfSections=Map.insert (shname h) s map})  
     
 -- | Set the name of the section
 setSectionName :: StateT ELFInfo (F.Parse ParseState) ()
@@ -622,10 +626,20 @@ setTextSection = do
     (n,b) <- lift (sectionContent info ".text")
     put $ info {elfSections=(Map.insert n (BinarySection b) s)}
 
+-- | Parse a string table and add it to the sections.
+setStringTable :: String -> StateT ELFInfo (F.Parse ParseState) ()
+setStringTable sectionName = do
+    info <- get
+    case sectionHeader info sectionName of
+        Just h ->  addSection h <$> (lift $ parseStringTable h)
+        Nothing -> return ()
+
 -- | Post initialise the info data
 annotateELFInfo :: StateT ELFInfo (F.Parse ParseState) ()
 annotateELFInfo = do
     setSectionName
+    setStringTable ".strtab"
+    setStringTable ".dynstr"
     setTextSection
     
 
