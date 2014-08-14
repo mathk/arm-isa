@@ -631,7 +631,9 @@ setStringTable :: String -> StateT ELFInfo (F.Parse ParseState) ()
 setStringTable sectionName = do
     info <- get
     case sectionHeader info sectionName of
-        Just h ->  addSection h <$> (lift $ parseStringTable h)
+        Just h ->  do
+            section <- lift $ parseStringTable h
+            addSection h section
         Nothing -> return ()
 
 -- | Post initialise the info data
