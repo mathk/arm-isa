@@ -666,7 +666,9 @@ parseSymbol = do
     sectionTable <- sectionFromIndex shndx
     let shbind = wordToSymbolBind $ shinfo `shiftR` 4 
         shtype = wordToSymbolType $ shinfo .&. 0xF
-        symbolName = maybe "" id $ stringFromOffset sectionTable shnameidx
+        symbolName 
+            | isJust sectionTable = maybe "" id $ stringFromOffset (fromJust sectionTable) shnameidx
+            | otherwise = "Null symbol"
         in return $ ELFSymbol symbolName shadd shsize shbind shtype shother shndx
 
 -- | Add a section to the state
@@ -674,19 +676,19 @@ addSection :: ELFSectionHeader -> ELFSection -> StateT ELFInfo (F.Parse ParseSta
 addSection h s = modify (\info@ELFInfo{elfSections=map} -> info {elfSections=Map.insert (shname h) s map})  
 
 -- | Get Section from it section header
-sectionFromHeader :: ELFSectionHeader -> StateT ELFInfo (F.Parse ParseState) ELFSection
+sectionFromHeader :: ELFSectionHeader -> StateT ELFInfo (F.Parse ParseState) (Maybe ELFSection)
 sectionFromHeader h = do 
     s <- elfSections <$> get
-    return $ s Map.! (shname h)
+    return $ Map.lookup (shname h) s
  
 -- | Get a section base on the index in the section header table 
-sectionFromIndex ::  Word16  -> StateT ELFInfo (F.Parse ParseState) ELFSection
+sectionFromIndex ::  Word16  -> StateT ELFInfo (F.Parse ParseState) (Maybe ELFSection)
 sectionFromIndex index = do
     shs <- elfSectionHeaders <$> get
     sectionFromHeader $ (shs !! fromIntegral index)
 
 -- Get the section from its name
-sectionFromName :: String -> StateT ELFInfo (F.Parse ParseState) ELFSection
+sectionFromName :: String -> StateT ELFInfo (F.Parse ParseState) (Maybe ELFSection)
 sectionFromName name = do
     msh <- sectionHeader <$> get <*> pure name
     case msh of
