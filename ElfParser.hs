@@ -318,7 +318,7 @@ instance Show ELFHeaderABI where
 
 
 instance Show ELFSymbol where
-    show (ELFSymbol {symname=name}) = name
+    show (ELFSymbol {symname=name,symndx=ndx,symaddr=addr}) = printf "{%s:\n\tIn section=%d\n\tAddress=%08X\n}" name ndx addr
 
 instance F.ParseStateAccess ParseState where
     offset = elfOffset
@@ -632,12 +632,12 @@ stringsMapUpTo beginOff maxOff = do
         F.moveTo $ currentOff + 1
         Map.insert (fromIntegral (currentOff + 1 - beginOff)) <$> parseString <*> stringsMapUpTo beginOff maxOff
 
-symbolTableUpTo :: Int64 -> StateT ELFInfo (F.Parse ParseState) [ELFSymbol]
-symbolTableUpTo maxOffset = do
+symbolTableUpTo :: String -> Int64 -> StateT ELFInfo (F.Parse ParseState) [ELFSymbol]
+symbolTableUpTo stringTable maxOffset = do
     currentOff <- lift (F.offset <$> F.getState)
     if currentOff + 1 >= maxOffset
     then return []
-    else (:) <$> parseSymbol <*> (symbolTableUpTo maxOffset)
+    else (:) <$> parseSymbol stringTable <*> (symbolTableUpTo stringTable maxOffset)
 
 parseStringTable :: ELFSectionHeader -> ParseElf ELFSection
 parseStringTable (ELFSectionHeader {shtype=ELFSHTStrTab, shoffset=offset, shsize=size}) = do
@@ -648,22 +648,22 @@ parseStringTable (ELFSectionHeader {shtype=ELFSHTStrTab, shoffset=offset, shsize
 parseSymbolTable :: ELFSectionHeader -> StateT ELFInfo (F.Parse ParseState) ELFSection
 parseSymbolTable (ELFSectionHeader {shtype=ELFSHTSymTab,shoffset=off,shsize=size}) = do
     lift $ F.moveTo off
-    SymbolTable <$> (symbolTableUpTo $ off+size)
+    SymbolTable <$> (symbolTableUpTo ".strtab" $ off+size)
 parseSymbolTable (ELFSectionHeader {shtype=ELFSHTDynSym,shoffset=off,shsize=size}) = do
     lift $ F.moveTo off
-    SymbolTable <$> (symbolTableUpTo $ off+size)
+    SymbolTable <$> (symbolTableUpTo ".dynstr" $ off+size)
 
 -- | Parse one saymbol entry in a symbol table.
 -- TODO: 32 and 64 bit ELF has different way of parsing this structure
-parseSymbol :: StateT ELFInfo (F.Parse ParseState) ELFSymbol
-parseSymbol = do
+parseSymbol :: String -> StateT ELFInfo (F.Parse ParseState) ELFSymbol
+parseSymbol stringTable = do
     shnameidx <- lift F.parseWord
     shadd <- lift parseMachineDepWord
     shsize <- lift parseMachineDepWord
     shinfo <- lift F.parseByte
     shother <- lift F.parseByte
     shndx <- lift F.parseHalf
-    sectionTable <- sectionFromIndex shndx
+    sectionTable <- sectionFromName stringTable
     let shbind = wordToSymbolBind $ shinfo `shiftR` 4 
         shtype = wordToSymbolType $ shinfo .&. 0xF
         symbolName 
