@@ -8,12 +8,14 @@
 module ElfParser
     (
       ELFInfo,
+      ELFSection(..),
       ELFHeader(..),
       ELFProgramHeader(..),
       ELFSectionHeader(..),
       sectionHeader, 
       -- * Accessing elf object
       sectionHeaders, programHeaders, header, size, sections,
+      sectionFromName, sectionFromIndex, sectionFromHeader,
       sectionName,
       parseHeader,
       parseFile, sectionContent,
@@ -352,6 +354,10 @@ wordToSymbolType w
     | w >= 10 && w <=12 = StOsUndefine
     | w >= 13 && w <= 15 = StProcUndefine
 
+{------------------------------------------------------------------------------
+ - Function to search in a ELFInfo data.
+ -----------------------------------------------------------------------------}
+
 -- | Get the size in byte of the pars file
 fileSize :: ELFInfo -> Int
 fileSize ELFInfo {elfFileSize=s} = s
@@ -374,6 +380,20 @@ sections ELFInfo{elfSections=s} = s
 -- | Get the size in byte of the elf file
 size :: ELFInfo -> Int
 size ELFInfo{elfFileSize=s} = s
+
+-- | Get Section from it section header
+sectionFromHeader :: ELFSectionHeader -> ELFInfo -> Maybe ELFSection
+sectionFromHeader h info = Map.lookup (shname h) (elfSections info)
+ 
+-- | Get a section base on the index in the section header table 
+sectionFromIndex ::  Word16  -> ELFInfo -> Maybe ELFSection
+sectionFromIndex index info = sectionFromHeader ((elfSectionHeaders info) !! fromIntegral index) info
+
+-- Get the section from its name
+sectionFromName :: String -> ELFInfo -> Maybe ELFSection
+sectionFromName name info = do
+    h <- sectionHeader info name 
+    sectionFromHeader h info
 
 -- | Get the specific section header
 -- 
@@ -614,6 +634,7 @@ moveToStringSectionName :: ELFInfo -> ParseElf ()
 moveToStringSectionName (ELFInfo {elfHeader=h, elfSectionHeaders=shs}) =
     F.moveTo $ shoffset (shs !! (fromIntegral (shstrndx h)))
 
+-- | Get the section content given the section name
 sectionContent :: ELFInfo -> String -> ParseElf (ELFSectionHeader, B.ByteString)
 sectionContent info string = do
     case sectionHeader info string of
@@ -632,6 +653,8 @@ stringsMapUpTo beginOff maxOff = do
         F.moveTo $ currentOff + 1
         Map.insert (fromIntegral (currentOff + 1 - beginOff)) <$> parseString <*> stringsMapUpTo beginOff maxOff
 
+-- | Inner function that recurse over the symbol table to build a map of
+-- symbols
 symbolTableUpTo :: String -> Int64 -> StateT ELFInfo (F.Parse ParseState) (Map.Map Int64 ELFSymbol)
 symbolTableUpTo stringTable maxOffset = do
     currentOff <- lift (F.offset <$> F.getState)
@@ -665,7 +688,7 @@ parseSymbol stringTable = do
     shinfo <- lift F.parseByte
     shother <- lift F.parseByte
     shndx <- lift F.parseHalf
-    sectionTable <- sectionFromName stringTable
+    sectionTable <- sectionFromName stringTable <$> get
     let shbind = wordToSymbolBind $ shinfo `shiftR` 4 
         shtype = wordToSymbolType $ shinfo .&. 0xF
         symbolName 
@@ -676,25 +699,6 @@ parseSymbol stringTable = do
 -- | Add a section to the state
 addSection :: ELFSectionHeader -> ELFSection -> StateT ELFInfo (F.Parse ParseState) ()
 addSection h s = modify (\info@ELFInfo{elfSections=map} -> info {elfSections=Map.insert (shname h) s map})  
-
--- | Get Section from it section header
-sectionFromHeader :: ELFSectionHeader -> StateT ELFInfo (F.Parse ParseState) (Maybe ELFSection)
-sectionFromHeader h = do 
-    s <- elfSections <$> get
-    return $ Map.lookup (shname h) s
- 
--- | Get a section base on the index in the section header table 
-sectionFromIndex ::  Word16  -> StateT ELFInfo (F.Parse ParseState) (Maybe ELFSection)
-sectionFromIndex index = do
-    shs <- elfSectionHeaders <$> get
-    sectionFromHeader $ (shs !! fromIntegral index)
-
--- Get the section from its name
-sectionFromName :: String -> StateT ELFInfo (F.Parse ParseState) (Maybe ELFSection)
-sectionFromName name = do
-    msh <- sectionHeader <$> get <*> pure name
-    case msh of
-        Just sh -> sectionFromHeader sh
 
 -- | Set the name of the section
 setSectionName :: StateT ELFInfo (F.Parse ParseState) ()

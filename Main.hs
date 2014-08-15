@@ -71,7 +71,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ (displayElfTextSection value input))
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ (displayElfTextSection value))
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -146,10 +146,11 @@ displayElfCanvas info = do
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
 
-displayElfTextSection :: ELF.ELFInfo -> B.ByteString -> [UI Element]
-displayElfTextSection info s =
-    case ELF.parse (ELF.sectionContent info ".text") s of
-        Right (n, stream) -> map toUi (Thumb.parseStream stream)
+displayElfTextSection :: ELF.ELFInfo -> [UI Element]
+displayElfTextSection info =
+    case ELF.sectionFromName ".text" info of
+        Just (ELF.BinarySection offset stream) -> UI.p # 
+                (set UI.text $ printf "Offset: %08X" offset) : map toUi (Thumb.parseStream stream)
       where toUi armInst = UI.p # set UI.text (show armInst)
 
 normalizeY :: Int64 -> Int -> Double
