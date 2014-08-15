@@ -14,10 +14,11 @@ import Control.Monad
 import Control.Applicative
 import Control.Monad.State.Lazy
 import Data.Tuple.All
+import Data.Int (Int64)
 
 data ArmInstrClass = DataProcessing | LoadStore | Branch | Coprocessor
 
-data ArmStream = ArmStream ByteString Bin.Word32
+data ArmStream = ArmStream Int64 ByteString Bin.Word32
 
 type ArmStreamState a = State ArmStream a
 
@@ -25,17 +26,26 @@ type ArmInstructionPart = Maybe (InstrClass,Bool,ArgumentsInstruction)
 
 instance InstructionStreamState (State ArmStream) where
     instructionBits off count = do
-        (ArmStream _ currentInst) <- get
+        (ArmStream _ _ currentInst) <- get
         return $ (currentInst `shiftR` off) .&. ((2 ^ count) - 1)
     nextInstruction = nextArmInstruction
     parseInstruction = parseArmInstruction
+    instructionOpcode = instructionBits 0 32
+    instructionOffset = getOffset
+
+-- | Get the current instruction offset from the begining 
+-- of the current section.
+getOffset :: ArmStreamState Int64
+getOffset = do
+    (ArmStream nextOffset _ _) <- get
+    return $ nextOffset - 4
 
 nextArmInstruction :: ArmStreamState ()
 nextArmInstruction = do
-    (ArmStream s _) <- get
+    (ArmStream nextOffset s _) <- get
     case Bin.pushChunk (Bin.runGetIncremental Bin.getWord32le) s of
         Bin.Done resultS off word -> do
-            put $  ArmStream resultS word
+            put $  ArmStream (nextOffset + 4) resultS word
 
 justArgumentPart :: InstrClass -> Bool -> ArgumentsInstruction -> ArmInstructionPart
 justArgumentPart cl flag instr = Just (cl,flag,instr)
@@ -66,9 +76,9 @@ parseArmInstruction = do
                 Branch -> parseBranchAndBlockTransfer
                 Coprocessor -> return $ Nothing
     case part of
-        Just (cl,flags,arguments) -> ArmInstr <$> instructionBits 0 32 <*> parseCond <*> return cl <*> return flags <*> return  arguments
-        Nothing -> Undefined <$> instructionBits 0 32
-
+        Just (cl,flags,arguments) -> ArmInstr <$> getOffset <*> instructionBits 0 32 <*> parseCond <*> return cl <*> return flags <*> return  arguments
+        Nothing -> undefinedInstruction
+ 
 -- | Branch, branch with link and block data transfert
 parseBranchAndBlockTransfer :: ArmStreamState ArmInstructionPart
 parseBranchAndBlockTransfer = do
@@ -412,4 +422,4 @@ parseShiftArgument st = do
     return $ ShiftArgs regd regm imm
 
 parseStream :: ByteString -> [ArmInstr]
-parseStream s = fst (runState (parseInstrStream 50) (ArmStream s 0))
+parseStream s = fst (runState (parseInstrStream 50) (ArmStream 0 s 0))

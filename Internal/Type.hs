@@ -3,6 +3,7 @@ module Internal.Type (
     instructionArrayBits, instructionFlag, parseRegister, 
     parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList,
     wordToEndianState,
+    undefinedInstruction,
     InstructionStreamState(..),
     ArmRegister(..),
     ArmInstr(..),
@@ -18,19 +19,22 @@ import Data.List
 import Text.Printf
 import Control.Applicative
 import Data.Bits
+import Data.Int (Int64)
 
-class (Functor m, Monad m) => InstructionStreamState m where
+class (Functor m, Monad m, Applicative m) => InstructionStreamState m where
     instructionBits :: Int -> Int -> m Word32
     parseInstruction :: m ArmInstr
     nextInstruction :: m ()
+    instructionOffset :: m Int64
+    instructionOpcode :: m Word32
 
 data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | FP | R12 | SP | LR | PC
     deriving (Show)
 
 data ArmInstr = 
-          ArmInstr {code :: Word32, cond :: Cond, memonic :: InstrClass, isFlags :: Bool, args :: ArgumentsInstruction  } 
+          ArmInstr {sectionOffset :: Int64, code :: Word32, cond :: Cond, memonic :: InstrClass, isFlags :: Bool, args :: ArgumentsInstruction  } 
         | NotParsed
-        | Undefined Word32
+        | Undefined Int64 Word32
 
 newtype Shift = Shift (SRType, Word32)
 
@@ -295,9 +299,9 @@ instance Show SRType where
     show ROR = "ror"
 
 instance Show ArmInstr where
-    show ArmInstr {code=co, cond=c,memonic=m, isFlags=flgs, args=arguments} = printf "%08X %s%s %s" co (show m) (show c) (show arguments)
+    show ArmInstr {sectionOffset=off, code=co, cond=c,memonic=m, isFlags=flgs, args=arguments} = printf "%08X: %08X %s%s %s" off co (show m) (show c) (show arguments)
     show NotParsed = "Unknown"
-    show (Undefined code) = printf "%08X Undefined" code
+    show (Undefined sectionOffset code) = printf "%08X: %08X Undefined" sectionOffset code
 
 instance Show Cond where
     show CondEQ = ".eq"
@@ -379,7 +383,12 @@ decodeImmediateShift ASR imm    = Shift (ASR,imm)
 decodeImmediateShift ROR 0      = Shift (RRX,1)
 decodeImmediateShift ROR imm    = Shift (ROR,imm)
 
+-- | Convert a word to EndianState
+wordToEndianState :: Word32 -> EndianState
+wordToEndianState 1 = BE
+wordToEndianState 0 = LE
 
+-- | Decode the cond field in an instruction stream
 parseCondAt :: InstructionStreamState m => Int -> m Cond
 parseCondAt off = do
     cond <- instructionBits off 4
@@ -401,10 +410,10 @@ parseCondAt off = do
         14 -> return CondAL
         15 -> return Uncond
 
-wordToEndianState :: Word32 -> EndianState
-wordToEndianState 1 = BE
-wordToEndianState 0 = LE
-
+-- | Return the undefined instruction
+undefinedInstruction :: InstructionStreamState m => m ArmInstr
+undefinedInstruction = Undefined <$> instructionOffset <*> instructionOpcode
+    
 -- We should validate that the length of the array is 16.
 decodeRegisterList :: [Word32] -> [ArmRegister]
 decodeRegisterList = reverse . fst . (foldr regselect ([],0))

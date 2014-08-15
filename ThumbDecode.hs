@@ -16,8 +16,9 @@ import Control.Applicative
 import qualified Control.Monad.State.Lazy as S
 import Text.Printf
 import Data.Tuple.All
+import Data.Int (Int64)
 
-data ThumbStream = ThumbStream ByteString Word16 Word16 Bool
+data ThumbStream = ThumbStream Int64 ByteString Word16 Word16 Bool
 
 type ThumbStreamState a = S.State ThumbStream a
 
@@ -25,19 +26,29 @@ instance InstructionStreamState (State ThumbStream) where
     instructionBits = thumbInstructionBits
     nextInstruction = nextThumbInstruction
     parseInstruction = parseThumbInstruction
+    instructionOpcode = instructionWord
+    instructionOffset = getOffset
+
+-- | Get the current offset from the begining of the section
+getOffset :: ThumbStreamState Int64
+getOffset = do
+    (ThumbStream nextOffset _ _ _ isHalf) <- S.get
+    case isHalf of 
+        True -> return $ nextOffset - 2
+        False -> return $ nextOffset - 4
 
 -- | Advance to the next instruction
 nextThumbInstruction :: ThumbStreamState ()
 nextThumbInstruction = do
-    (ThumbStream b ph pl _) <- S.get
+    (ThumbStream nextOffset b ph pl _) <- S.get
     case Bin.pushChunk (Bin.runGetIncremental Bin.getWord16le) b of
         Bin.Done resultS _ word -> do
-            S.put $  ThumbStream resultS word pl True
+            S.put $  ThumbStream (nextOffset + 2) resultS word pl True
             instMark <- firstInstructionBits 11 5
             if instMark == 29 || instMark == 30 || instMark == 31
             then case Bin.pushChunk (Bin.runGetIncremental Bin.getWord16le) resultS of
                 Bin.Done resultL _ wordLo -> do
-                    S.put $ ThumbStream resultL word wordLo False
+                    S.put $ ThumbStream (nextOffset + 4) resultL word wordLo False
             else return ()
     
 -- | Get the value of a field in a instruction stream
@@ -49,7 +60,7 @@ nextThumbInstruction = do
 -- > thumbmark <- firstInstruction 11 5
 firstInstructionBits :: Int -> Int -> ThumbStreamState Word16
 firstInstructionBits off count = do
-    (ThumbStream _ w _ _) <- S.get
+    (ThumbStream _ _ w _ _) <- S.get
     return $ (w `shiftR` off) .&. ((2 ^ count) - 1)
 
 -- | Get the value of a field in a instruction stream
@@ -61,7 +72,7 @@ firstInstructionBits off count = do
 -- > thumbmark <- firstInstruction 11 5
 secondInstructionBits :: Int -> Int -> ThumbStreamState Word16
 secondInstructionBits off count = do
-    (ThumbStream _ _ w _) <- S.get
+    (ThumbStream _ _ _ w _) <- S.get
     return $ (w `shiftR` off) .&. ((2 ^ count) - 1)
 
 -- | Unify the way we fetch intruction bits
@@ -81,7 +92,7 @@ thumbInstructionBits off size
 -- Retrun True if it is a half word instruction.
 isHalfwordInstruction :: ThumbStreamState Bool
 isHalfwordInstruction = do
-    (ThumbStream _ _ _ b) <- S.get
+    (ThumbStream _ _ _ _ b) <- S.get
     return b
 
 -- | Parse regsiter for thumb instruction set where the register is
@@ -139,7 +150,7 @@ parseFullThumbInstruction = do
         [1,1, 0,0,_,_,0,0,1, _] -> parseLoadByte
         [1,1, 0,0,_,_,1,0,1, _] -> parseLoadWord
         [1,1, 0,1,0,_,_,_,_, _] -> parseDataProcessingRegister
-        otherwise -> Undefined <$> instructionWord 
+        otherwise -> undefinedInstruction 
 
 -- | Data processing register
 -- Section 6.3.12 of the reference manual.
@@ -163,7 +174,7 @@ parseDataProcessingRegister = do
         [0,1,0,0, 1,_,_,_, _,_,_,_] -> partialInstruction Sxtab <*> parseExtendAddT1Args 
         [0,1,0,1, 1,_,_,_, 1,1,1,1] -> partialInstruction Uxtb <*> parseExtendT2Args
         [0,1,0,1, 1,_,_,_, _,_,_,_] -> partialInstruction Uxtab <*> parseExtendAddT1Args 
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Parse store single data
 -- Section A6.3.10 of the reference manual
@@ -186,7 +197,7 @@ parseStoreSingleData = do
         [1,1,0, _,_,_,_,_,_] -> partialInstruction Str <*> parseLoadStoreImmediateT3Args
         [0,1,0, 0,0,0,0,0,0] -> partialInstruction Str <*> parseLoadStoreRegisterT2Args
         [0,1,0, 1,1,1,0,_,_] -> partialInstruction Strt <*> parseLoadStoreImmediateUnprivilegedT1Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 
 -- | Branch and miscellaneous control
@@ -206,11 +217,11 @@ parseBranchAndMiscellaneousControl = do
         [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,0,0,_, _,_,_,_] -> return NotParsed
         [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,0,1,0, _,_,_,_] -> return NotParsed
         [0,_,0, _,_,_,_,_,_,_,_, 0,1,1,1,0,1,1, _,_,_,_] -> return NotParsed
-        [0,_,0, _,_,_,_,_,_,_,_, _,1,1,1,_,_,_, _,_,_,_] -> Undefined <$> instructionWord
+        [0,_,0, _,_,_,_,_,_,_,_, _,1,1,1,_,_,_, _,_,_,_] -> undefinedInstruction
         [0,_,0, _,_,_,_,_,_,_,_, _,_,_,_,_,_,_, _,_,_,_] -> partialInstructionWithCondition B 22 <*> parseBranchImmediateT3Args
         [1,_,0, _,_,_,_,_,_,_,_, _,_,_,_,_,_,_, _,_,_,_] -> partialInstruction Blx <*> parseBranchLinkImmediateT1Args
         [1,_,1, _,_,_,_,_,_,_,_, _,_,_,_,_,_,_, _,_,_,_] -> partialInstruction Bl <*> parseBranchLinkImmediateT2Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Load byte, memory hints
 -- Section A6.3.9 of the reference manual.
@@ -224,7 +235,7 @@ parseLoadByte = do
         [0,0, 0,0,0,0,0,0, _,_,_,_, _,_,_,_] -> partialInstruction Ldrb <*> parseLoadStoreRegisterT2Args
         [0,0, 1,1,0,0,_,_, _,_,_,_, 1,1,1,1] -> partialInstruction Pldw <*> pure NullArgs
         [0,0, 1,_,_,1,_,_, _,_,_,_, _,_,_,_] -> partialInstruction Ldrb <*> parseLoadStoreImmediateT4Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Data processing plain binary immediate
 -- Section A6.3.3 of the reference manual.
@@ -238,7 +249,7 @@ parseDataProcessingPlainImmediate = do
         [0,1,0,1,0, 1,1,1,1] -> partialInstruction Adr <*> parseImmediateRelativeTXArgs False
         [0,1,0,1,0, _,_,_,_] -> partialInstruction Sub <*> parseImmediatePlainT4Args
         [0,1,1,0,0, _,_,_,_] -> partialInstruction Movt <*> parseImmediateMovPlainT3Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Load and store multiple instruction decoding
 -- Section A6.3.5 of the reference manual.
@@ -256,7 +267,7 @@ parseLoadStoreMultiple = do
         [1,0, 1, _,_,_,_,_] -> partialInstruction Ldmdb <*> parseLoadMultipleT2Args
         [1,1, 0, _,_,_,_,_] -> partialInstruction Srsia <*> parseStoreReturnStateT1Args 
         [1,1, 1, _,_,_,_,_] -> partialInstruction Rfeia <*> parseReturnFromExceptionT1Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Load word instruction decoding
 -- Section A6.3.7 of the reference manual.
@@ -270,7 +281,7 @@ parseLoadWord = do
         [0,0, 1,1,0,0,_,_, _,_,_,_] -> partialInstruction Ldr <*> parseLoadStoreImmediateT3Args
         [0,1, _,_,_,_,_,_, _,_,_,_] -> partialInstruction Ldr <*> parseLoadStoreImmediateT3Args
         [0,0, 1,1,1,0,_,_, _,_,_,_] -> partialInstruction Ldrt <*> parseLoadStoreImmediateUnprivilegedT1Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Data processing encoding 32bit thumb.
 -- Section A6.3.1 of the reference manual.
@@ -294,7 +305,7 @@ parseDataProcessingModifiedImmediate = do
         [1,1,0,1, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Cmp 20 <*> parseImmediate12TestT1Args
         [1,1,0,1, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Sub 20 <*> parseImmediate12T1Args
         [1,1,1,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Rsb 20 <*> parseImmediate12T1Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Decode data processing 32bit shift register
 -- Section A6.3.11 of the reference manual.
@@ -319,7 +330,7 @@ parseDataProcessingRegisterShift = do
         [1,1,0,1, _,_,_,_, 1,1,1,1,1] -> partialInstructionWithFlags Cmp 20 <*> parseRegisterTestT2Args
         [1,1,0,1, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Sub 20 <*> parseRegisterT2Args
         [1,1,1,0, _,_,_,_, _,_,_,_,_] -> partialInstructionWithFlags Rsb 20 <*> parseRegisterT2Args
-        otherwise -> Undefined <$> instructionWord 
+        otherwise -> undefinedInstruction 
 
 -- | Special  decode case for mov instruction 
 -- Follow up on the A6.3.11 section from the reference manual.
@@ -334,8 +345,6 @@ parseMovAndImmediateShift = do
         [1,1, 0,0,0,0,0] -> partialInstructionWithFlags Rrx 20 <*> parseRegisterMovT3Args
         [1,1, _,_,_,_,_] -> partialInstructionWithFlags Ror 20 <*> parseImmediateTestT2Args
         
-
-
 {------------------------------------------------------------------------------
  - Docoding table for 16 bit thumb instruction
  -----------------------------------------------------------------------------}
@@ -375,7 +384,7 @@ parseHalfMiscellaneous = do
         [1,1,0,_,_,_,_] -> partialInstruction Pop <*> parsePopRegisterListT1Args
         [1,1,1,0,_,_,_] -> partialInstruction Bkpt <*> pure NullArgs
         [1,1,1,1,_,_,_] -> parseIfThenHint
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | If then and hints
 -- Section A6.2.5 second page of the reference manual.
@@ -412,7 +421,7 @@ parseLoadStoreSingleDataItem = do
         [1,0,0,0, 1,_,_] -> partialInstruction Ldrh <*> parseLoadStoreImmediateT1Args
         [1,0,0,1, 0,_,_] -> partialInstruction Str <*> parseLoadStoreImmediateT2Args
         [1,0,0,1, 1,_,_] -> partialInstruction Ldr <*> parseLoadStoreImmediateT2Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Special data intructions and branch and exchange
 -- Section A6.2.3 of the reference manual.
@@ -425,7 +434,7 @@ parseSpecialDataInstruction = do
         [1,0,_,_] -> partialInstruction Mov <*> parseSpecialRegisterMovT2Args  
         [1,1,0,_] -> partialInstruction Bx  <*> parseSpecialBranchRegisterT1Args
         [1,1,1,_] -> partialInstruction Blx <*> parseSpecialBranchRegisterT1Args
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Data processing
 -- Section A6.2.2 of the reference manual.
@@ -449,7 +458,7 @@ parseHalfDataProcessing = do
         [1,1,0,1] -> partialInstruction Mul <*> parseDataRegisterT1Args   
         [1,1,1,0] -> partialInstruction Bic <*> parseDataRegisterT1Args   
         [1,1,1,1] -> partialInstruction And <*> parseDataRegisterT1Args   
-        otherwise -> Undefined <$> instructionWord
+        otherwise -> undefinedInstruction 
 
 -- | Shift, add, substract, move and compare
 -- Section A6.2.1 of the reference manual.
@@ -475,21 +484,20 @@ parseShiftImmediate = do
         [1,0,1,_,_] -> partialInstruction Cmp <*> parseImmediateTestT1Args
         [1,1,0,_,_] -> partialInstruction Add <*> parseImmediate8T1Args
         [1,1,1,_,_] -> partialInstruction Sub <*> parseImmediate8T1Args
-        otherwise -> Undefined <$> instructionWord
-
+        otherwise -> undefinedInstruction 
 
 {------------------------------------------------------------------------------
  - Helper function to build decode instruction
  -----------------------------------------------------------------------------}
 
 partialInstruction :: InstrClass -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
-partialInstruction cl = ArmInstr <$> instructionWord <*> pure CondAL <*> pure cl <*> pure False
+partialInstruction cl = ArmInstr <$> getOffset <*> instructionWord <*> pure CondAL <*> pure cl <*> pure False
 
 partialInstructionWithFlags :: InstrClass -> Int -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
-partialInstructionWithFlags cl off = ArmInstr <$> instructionWord <*> pure CondAL <*> pure cl <*> instructionFlag off
+partialInstructionWithFlags cl off = ArmInstr <$> getOffset <*> instructionWord <*> pure CondAL <*> pure cl <*> instructionFlag off
 
 partialInstructionWithCondition :: InstrClass -> Int -> ThumbStreamState (ArgumentsInstruction -> ArmInstr)
-partialInstructionWithCondition cl cond = ArmInstr <$> instructionWord <*> parseCondAt cond <*> pure cl <*> pure False
+partialInstructionWithCondition cl cond = ArmInstr <$> getOffset <*> instructionWord <*> parseCondAt cond <*> pure cl <*> pure False
 
 {------------------------------------------------------------------------------
  - Argument parsing function
@@ -960,5 +968,5 @@ decodeImmediate5T2 :: ThumbStreamState Word32
 decodeImmediate5T2 = ((+) <$> ((`shiftL` 2) <$> instructionBits 12 3) <*> instructionBits 6 2)
 
 parseStream :: ByteString -> [ArmInstr]
-parseStream s = fst (runState (parseInstrStream 150) (ThumbStream s 0 0 False))
+parseStream s = fst (runState (parseInstrStream 150) (ThumbStream 0 s 0 0 False))
 
