@@ -184,7 +184,7 @@ data ELFSection =
     -- ^ Section of type ELFSHTStrTab
     StringTableSection (Map.Map Word32 String) |
     -- ^ Symbol table
-    SymbolTable [ELFSymbol]
+    SymbolTable (Map.Map Int64 ELFSymbol)
 
 type ParseElf a = F.Parse ParseState a
 
@@ -632,12 +632,14 @@ stringsMapUpTo beginOff maxOff = do
         F.moveTo $ currentOff + 1
         Map.insert (fromIntegral (currentOff + 1 - beginOff)) <$> parseString <*> stringsMapUpTo beginOff maxOff
 
-symbolTableUpTo :: String -> Int64 -> StateT ELFInfo (F.Parse ParseState) [ELFSymbol]
+symbolTableUpTo :: String -> Int64 -> StateT ELFInfo (F.Parse ParseState) (Map.Map Int64 ELFSymbol)
 symbolTableUpTo stringTable maxOffset = do
     currentOff <- lift (F.offset <$> F.getState)
     if currentOff + 1 >= maxOffset
-    then return []
-    else (:) <$> parseSymbol stringTable <*> (symbolTableUpTo stringTable maxOffset)
+    then return Map.empty
+    else do
+        sym@(ELFSymbol {symaddr=addr}) <- parseSymbol stringTable 
+        Map.insert addr  sym <$> (symbolTableUpTo stringTable maxOffset)
 
 parseStringTable :: ELFSectionHeader -> ParseElf ELFSection
 parseStringTable (ELFSectionHeader {shtype=ELFSHTStrTab, shoffset=offset, shsize=size}) = do
