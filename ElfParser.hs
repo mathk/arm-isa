@@ -389,11 +389,17 @@ sectionFromHeader h info = Map.lookup (shname h) (elfSections info)
 sectionFromIndex ::  Word16  -> ELFInfo -> Maybe ELFSection
 sectionFromIndex index info = sectionFromHeader ((elfSectionHeaders info) !! fromIntegral index) info
 
--- Get the section from its name
+-- | Get the section from its name
 sectionFromName :: String -> ELFInfo -> Maybe ELFSection
 sectionFromName name info = do
     h <- sectionHeader info name 
     sectionFromHeader h info
+
+-- | Retrive the section containing symbol table
+symbolTable :: ELFInfo -> Maybe ELFSection
+symbolTable info = case sectionFromName ".dynsym" info of
+        Just s -> return s
+        Nothing -> sectionFromName ".symtab" info
 
 -- | Get the specific section header
 -- 
