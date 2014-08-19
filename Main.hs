@@ -1,8 +1,8 @@
 import qualified ElfParser as ELF
-import qualified ArmDecode as Arm
-import qualified ThumbDecode as Thumb
+import qualified Arm.ArmDecode as Arm
+import qualified Arm.ThumbDecode as Thumb
 import qualified Data.ByteString as B
-import ArmType
+import Arm.ArmType
 import qualified Graphics.UI.Threepenny as UI
 import System.Environment
 import System.Exit (ExitCode(..), exitWith)

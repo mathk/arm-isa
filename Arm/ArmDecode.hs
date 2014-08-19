@@ -1,10 +1,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 
-module ArmDecode (
+module Arm.ArmDecode (
     parseStream,
 ) where
 
-import Internal.Type
+import Arm.Internal.Type
 import qualified Data.Binary as Bin
 import qualified Data.Binary.Get as Bin
 import Data.Binary.Bits

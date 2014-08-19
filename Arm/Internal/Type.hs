@@ -1,4 +1,4 @@
-module Internal.Type (
+module Arm.Internal.Type (
     wordToSRType, wordToRegister, instructionSignedExtendBits, 
     instructionArrayBits, instructionFlag, parseRegister, 
     parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList,

@@ -1,10 +1,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 
-module ThumbDecode (
+module Arm.ThumbDecode (
     parseStream
 ) where
 
-import Internal.Type
+import Arm.Internal.Type
 import Data.Binary
 import qualified Data.Binary.Get as Bin
 import Data.Binary.Bits

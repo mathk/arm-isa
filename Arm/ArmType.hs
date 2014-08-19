@@ -1,9 +1,9 @@
-module ArmType (
+module Arm.ArmType (
     armInstructionOffset
 ) 
 where 
 
-import Internal.Type
+import Arm.Internal.Type
 import Data.Int (Int64)
 
 -- | Return the offsset of the arm instruction inside the section
