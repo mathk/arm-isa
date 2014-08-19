@@ -17,7 +17,9 @@ module ElfParser
       sectionHeaders, programHeaders, header, size, sections,
       sectionFromName, sectionFromIndex, sectionFromHeader,
       sectionName,
-      parseHeader,
+      -- * Symbol related function
+      symbolAt, symbolName,
+      -- * Parsing function
       parseFile, sectionContent,
       parse
     ) where
@@ -401,6 +403,17 @@ symbolTable info = case sectionFromName ".dynsym" info of
         Just s -> return s
         Nothing -> sectionFromName ".symtab" info
 
+-- | Get the symbol at a specific offset
+symbolAt :: ELFInfo -> Int64 -> Maybe ELFSymbol
+symbolAt info offset = do
+    SymbolTable table <- symbolTable info
+    Map.lookup offset table
+
+symbolName :: ELFSymbol -> String
+symbolName = symname
+    
+
+
 -- | Get the specific section header
 -- 
 -- Example usage:
@@ -654,7 +667,7 @@ stringsMapUpTo :: Int64 -> Int64 -> ParseElf (Map.Map Word32 String)
 stringsMapUpTo beginOff maxOff = do
     currentOff <- F.offset <$> F.getState
     if currentOff + 1 >= maxOff
-    then return (Map.singleton 0 "NullSection")
+    then return (Map.singleton 0 "NullString")
     else do 
         F.moveTo $ currentOff + 1
         Map.insert (fromIntegral (currentOff + 1 - beginOff)) <$> parseString <*> stringsMapUpTo beginOff maxOff

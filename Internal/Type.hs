@@ -367,6 +367,7 @@ instructionSignedExtendBits off count = do
 instructionArrayBits :: InstructionStreamState m => [Int] -> m [Word32]
 instructionArrayBits = sequence . (fmap (`instructionBits` 1))
 
+-- | Parse a stream of instruction
 parseInstrStream :: InstructionStreamState m =>  Int -> m [ArmInstr]
 parseInstrStream 0 = return []
 parseInstrStream n = do
@@ -374,6 +375,8 @@ parseInstrStream n = do
     i <- parseInstruction
     (i:) <$> parseInstrStream (n-1)
 
+-- | Decoding of shift information.
+-- See section A8.4.3 of thereference manual.
 decodeImmediateShift :: SRType -> Word32 -> Shift
 decodeImmediateShift LSL imm    = Shift (LSL,imm)
 decodeImmediateShift LSR 0      = Shift (LSR,32)

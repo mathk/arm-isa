@@ -2,6 +2,7 @@ import qualified ElfParser as ELF
 import qualified ArmDecode as Arm
 import qualified ThumbDecode as Thumb
 import qualified Data.ByteString as B
+import ArmType
 import qualified Graphics.UI.Threepenny as UI
 import System.Environment
 import System.Exit (ExitCode(..), exitWith)
@@ -150,9 +151,14 @@ displayElfTextSection :: ELF.ELFInfo -> [UI Element]
 displayElfTextSection info =
     case ELF.sectionFromName ".text" info of
         Just (ELF.BinarySection offset stream) -> UI.p # 
-                (set UI.text $ printf "Offset: %08X" offset) : map toUi (Thumb.parseStream stream)
-      where toUi armInst = UI.p # set UI.text (show armInst)
+                (set UI.text $ printf "Offset: %08X" offset) : map (toUi offset) (Thumb.parseStream stream)
+      where toUi offset armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + offset of
+                            Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
+                            Nothing -> UI.p # set UI.text (show armInst)
 
+{------------------------------------------------------------------------------
+ - Drawing  canvas with all the different section
+ -----------------------------------------------------------------------------}
 normalizeY :: Int64 -> Int -> Double
 normalizeY value max= (((fromIntegral value) * 1640.0) / (fromIntegral max)) 
 
