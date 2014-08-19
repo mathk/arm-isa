@@ -29,7 +29,7 @@ class (Functor m, Monad m, Applicative m) => InstructionStreamState m where
     instructionOpcode :: m Word32
 
 data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | FP | R12 | SP | LR | PC
-    deriving (Show)
+    deriving (Show,Eq)
 
 data ArmInstr = 
           ArmInstr {sectionOffset :: Int64, code :: Word32, cond :: Cond, memonic :: InstrClass, isFlags :: Bool, args :: ArgumentsInstruction  } 
