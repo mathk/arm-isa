@@ -1,8 +1,7 @@
 import qualified ElfParser as ELF
-import qualified Arm.ArmDecode as Arm
-import qualified Arm.ThumbDecode as Thumb
 import qualified Data.ByteString as B
 import Arm.ArmType
+import Arm.Core
 import qualified Graphics.UI.Threepenny as UI
 import System.Environment
 import System.Exit (ExitCode(..), exitWith)
@@ -151,7 +150,7 @@ displayElfTextSection :: ELF.ELFInfo -> [UI Element]
 displayElfTextSection info =
     case ELF.sectionFromName ".text" info of
         Just (ELF.BinarySection offset stream) -> UI.p # 
-                (set UI.text $ printf "Offset: %08X" offset) : map (toUi offset) (Thumb.parseStream stream)
+                (set UI.text $ printf "Offset: %08X" offset) : map (toUi offset) (parseThumbStream stream 170)
       where toUi offset armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + offset of
                             Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
                             Nothing -> UI.p # set UI.text (show armInst)

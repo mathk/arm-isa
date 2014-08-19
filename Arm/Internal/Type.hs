@@ -1,7 +1,7 @@
 module Arm.Internal.Type (
     wordToSRType, wordToRegister, instructionSignedExtendBits, 
     instructionArrayBits, instructionFlag, parseRegister, 
-    parseInstrStream, decodeImmediateShift, parseCondAt, decodeRegisterList,
+    decodeImmediateShift, parseCondAt, decodeRegisterList,
     wordToEndianState,
     undefinedInstruction,
     InstructionStreamState(..),
@@ -366,14 +366,6 @@ instructionSignedExtendBits off count = do
 
 instructionArrayBits :: InstructionStreamState m => [Int] -> m [Word32]
 instructionArrayBits = sequence . (fmap (`instructionBits` 1))
-
--- | Parse a stream of instruction
-parseInstrStream :: InstructionStreamState m =>  Int -> m [ArmInstr]
-parseInstrStream 0 = return []
-parseInstrStream n = do
-    nextInstruction 
-    i <- parseInstruction
-    (i:) <$> parseInstrStream (n-1)
 
 -- | Decoding of shift information.
 -- See section A8.4.3 of thereference manual.

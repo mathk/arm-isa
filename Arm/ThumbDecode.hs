@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Arm.ThumbDecode (
-    parseStream
+    initialState
 ) where
 
 import Arm.Internal.Type
@@ -967,6 +967,5 @@ decodeImmediate12T1 = do
 decodeImmediate5T2 :: ThumbStreamState Word32
 decodeImmediate5T2 = ((+) <$> ((`shiftL` 2) <$> instructionBits 12 3) <*> instructionBits 6 2)
 
-parseStream :: ByteString -> [ArmInstr]
-parseStream s = fst (runState (parseInstrStream 150) (ThumbStream 0 s 0 0 False))
-
+initialState :: ByteString -> ThumbStream
+initialState s = ThumbStream 0 s 0 0 False

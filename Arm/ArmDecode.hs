@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Arm.ArmDecode (
-    parseStream,
+    initialState,
 ) where
 
 import Arm.Internal.Type
@@ -421,5 +421,5 @@ parseShiftArgument st = do
     Shift (st,imm)     <- decodeImmediateShift st <$> instructionBits 7 5
     return $ ShiftArgs regd regm imm
 
-parseStream :: ByteString -> [ArmInstr]
-parseStream s = fst (runState (parseInstrStream 50) (ArmStream 0 s 0))
+initialState :: ByteString -> ArmStream 
+initialState s = ArmStream 0 s 0

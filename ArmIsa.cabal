@@ -19,11 +19,11 @@ cabal-version:       >=1.10
 library
   build-depends:       base >=4.6, bytestring >=0.10 && <0.11, containers, threepenny-gui, transformers, mtl, binary >= 0.6, binary-bits >= 0.3, tuple
   default-language:    Haskell2010
-  exposed-modules:     FileDecoding, ElfParser, Arm.ArmDecode, Arm.ThumbDecode, Arm.Internal.Type, Arm.ArmType
+  exposed-modules:     FileDecoding, ElfParser, Arm.ArmDecode, Arm.ThumbDecode, Arm.Internal.Type, Arm.ArmType, Arm.Core
 
 executable ArmIsa
   main-is:             Main.hs
-  other-modules:       FileDecoding, ElfParser, Arm.ArmDecode, Arm.ThumbDecode, Arm.ArmType
+  other-modules:       FileDecoding, ElfParser, Arm.ArmType, Arm.Core
   -- other-extensions:    
   build-depends:       base >=4.6, bytestring >=0.10 && <0.11, threepenny-gui >= 0.4.2.1, transformers, mtl, containers, binary >= 0.6, binary-bits >= 0.3, tuple
   -- hs-source-dirs:      
