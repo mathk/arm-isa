@@ -13,6 +13,7 @@ module Arm.Internal.Type (
     SRType(..),
     Shift(..),
     ArmBlock(..),
+    InstructionState(..),
 ) where
 
 import Data.Binary
@@ -28,6 +29,7 @@ class (Functor m, Monad m, Applicative m) => InstructionStreamState m where
     nextInstruction :: m ()
     instructionOffset :: m Int64
     instructionOpcode :: m Word32
+    decodingState :: m InstructionState
 
 data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | FP | R12 | SP | LR | PC
     deriving (Show,Eq)
@@ -37,7 +39,9 @@ data ArmInstr =
         | NotParsed
         | Undefined Int64 Word32
 
-data ArmBlock = ArmBlock [ArmInstr] [Int64]
+data InstructionState = ThumbState | ArmState
+
+data ArmBlock = ArmBlock { block :: [ArmInstr], next :: [Int64], parseState :: InstructionState}
 
 newtype Shift = Shift (SRType, Word32)
 

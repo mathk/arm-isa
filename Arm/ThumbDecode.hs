@@ -28,6 +28,7 @@ instance InstructionStreamState (State ThumbStream) where
     parseInstruction = parseThumbInstruction
     instructionOpcode = instructionWord
     instructionOffset = getOffset
+    decodingState = return ThumbState
 
 -- | Get the current offset from the begining of the section
 getOffset :: ThumbStreamState Int64

@@ -30,8 +30,8 @@ parseBlockStreamWhile test = do
     nextInstruction
     i <- parseInstruction
     if test i 
-    then ArmBlock <$> pure (return i) <*> pure []
-    else ArmBlock <$> ((i:) <$> instructionsBlock <$> parseBlockStreamWhile test) <*> pure []
+    then ArmBlock <$> pure (return i) <*> (pure $ nextBlocksFromInstruction i) <*> decodingState
+    else ArmBlock <$> ((i:) <$> instructionsBlock <$> parseBlockStreamWhile test) <*> pure [] <*> decodingState
 
 isBlockEnding :: ArmInstr -> Bool
 isBlockEnding ArmInstr {memonic=B} = True
@@ -47,6 +47,11 @@ isBlockEnding ArmInstr {args=(RegisterShiftedMvnArgs PC _ _ _)} = True
 isBlockEnding ArmInstr {args=(RegisterArgs _ PC _ _ _)} = True
 isBlockEnding ArmInstr {args=(RegisterToRegisterArgs PC _)} = True
 isBlockEnding _ = False
+
+-- | Retrive the next block offset from an instruction
+nextBlocksFromInstruction :: ArmInstr -> [Int64]
+--nextBlockFromInstruction ArmInstr {memonic=B, args=(BranchArgs imm)}
+nextBlocksFromInstruction _ = []
 
 
 parseThumbStream :: B.ByteString -> Int -> [ArmInstr]
@@ -65,7 +70,7 @@ parseArmBlock :: Int64 -> B.ByteString -> ArmBlock
 parseArmBlock n = (parseBlock Arm.initialState) . (B.drop $ fromIntegral n)
 
 instructionsBlock :: ArmBlock -> [ArmInstr]
-instructionsBlock (ArmBlock lst _) = lst
+instructionsBlock (ArmBlock lst _ _) = lst
 
 nextBlocks :: ArmBlock -> [Int64]
-nextBlocks (ArmBlock _ lst) = lst
+nextBlocks (ArmBlock _ lst _) = lst

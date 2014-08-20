@@ -71,7 +71,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ (displayElfTextSection value))
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ [(displayElfTextSection value 0)])
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -149,13 +149,12 @@ displayElfCanvas info = do
 displayElfTextSection :: ELF.ELFInfo -> Int64 -> UI Element
 displayElfTextSection info offset = do
     buttonThumb <- UI.button #. "button" #+ [string "Next Thumb Decode"]
-    case ELF.sectionFromName ".text" info of
-        Just (ELF.BinarySection sectionOffset stream) -> UI.p # 
-                (set UI.text $ printf "Offset: %08X" (offset+sectionOffset)) : map (toUi offset) (instructionsBlock (parseArmBlock offset stream))
-      where toUi offset armInst = do
-                case ELF.symbolAt info $ (armInstructionOffset armInst) + offset of
-                    Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
-                    Nothing -> UI.p # set UI.text (show armInst)
+    UI.div #+ (case ELF.sectionFromName ".text" info of
+                Just (ELF.BinarySection sectionOffset stream) -> (UI.p # 
+                    (set UI.text $ printf "Offset: %08X" (offset+sectionOffset))) : map (toUi offset) (instructionsBlock (parseArmBlock offset stream))
+                        where toUi offset armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + (offset+sectionOffset) of
+                                Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
+                                Nothing -> UI.p # set UI.text (show armInst))
 
 {------------------------------------------------------------------------------
  - Drawing  canvas with all the different section

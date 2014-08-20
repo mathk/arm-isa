@@ -32,6 +32,7 @@ instance InstructionStreamState (State ArmStream) where
     parseInstruction = parseArmInstruction
     instructionOpcode = instructionBits 0 32
     instructionOffset = getOffset
+    decodingState = return ArmState
 
 -- | Get the current instruction offset from the begining 
 -- of the current section.
