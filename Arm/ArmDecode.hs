@@ -151,6 +151,8 @@ parseMiscellaneous = do
         [1,1,1, _, 1,1, _,_,_,_] -> return $ Just (Smc,False,NullArgs)
         otherwise -> return Nothing
 
+-- | Data-processing (register-shifted register)
+-- Section A5.2.2 of the reference manual.
 parseDataProcessingRegisterShift :: ArmStreamState ArmInstructionPart
 parseDataProcessingRegisterShift = do
     bitsField <- instructionArrayBits [24,23,22,21,20,6,5]
@@ -211,6 +213,8 @@ parseDataProcessingImmediate = do
         [1,1,1,1,_, _,_,_,_]  -> return $ Just (Mvn,isFlags,argImmMvn)
         otherwise -> return Nothing
 
+-- | Dtat-processing (register)
+-- Section A2.5.1 of the reference manual. 
 parseDataProcessingRegister :: ArmStreamState ArmInstructionPart
 parseDataProcessingRegister = do
     imm <- instructionBits 7 5

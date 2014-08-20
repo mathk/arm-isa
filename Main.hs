@@ -146,14 +146,16 @@ displayElfCanvas info = do
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
 
-displayElfTextSection :: ELF.ELFInfo -> [UI Element]
-displayElfTextSection info =
+displayElfTextSection :: ELF.ELFInfo -> Int64 -> UI Element
+displayElfTextSection info offset = do
+    buttonThumb <- UI.button #. "button" #+ [string "Next Thumb Decode"]
     case ELF.sectionFromName ".text" info of
-        Just (ELF.BinarySection offset stream) -> UI.p # 
-                (set UI.text $ printf "Offset: %08X" offset) : map (toUi offset) (parseThumbStream stream 170)
-      where toUi offset armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + offset of
-                            Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
-                            Nothing -> UI.p # set UI.text (show armInst)
+        Just (ELF.BinarySection sectionOffset stream) -> UI.p # 
+                (set UI.text $ printf "Offset: %08X" (offset+sectionOffset)) : map (toUi offset) (instructionsBlock (parseArmBlock offset stream))
+      where toUi offset armInst = do
+                case ELF.symbolAt info $ (armInstructionOffset armInst) + offset of
+                    Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
+                    Nothing -> UI.p # set UI.text (show armInst)
 
 {------------------------------------------------------------------------------
  - Drawing  canvas with all the different section

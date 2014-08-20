@@ -12,6 +12,7 @@ module Arm.Internal.Type (
     InstrClass(..),
     SRType(..),
     Shift(..),
+    ArmBlock(..),
 ) where
 
 import Data.Binary
@@ -36,6 +37,8 @@ data ArmInstr =
         | NotParsed
         | Undefined Int64 Word32
 
+data ArmBlock = ArmBlock [ArmInstr] [Int64]
+
 newtype Shift = Shift (SRType, Word32)
 
 data EndianState = BE | LE
@@ -43,13 +46,13 @@ data EndianState = BE | LE
 data Cond = CondEQ | CondNE | CondCS | CondCC | CondMI | CondPL | CondVS | CondVC | CondHI | CondLS | CondGE | CondLT | CondGT | CondLE | CondAL | Uncond
 
 data ArgumentsInstruction = 
-        RegisterShiftedArgs 
+        RegisterShiftedArgs -- ^ Used for And, Eor, Sub, Rsb, Add, Sbc, Adc and related arithmetic instruction
             ArmRegister -- ^ The rn register
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rs register
             ArmRegister -- ^ The rm register
             SRType      -- ^ Shift type
-    |   RegisterShiftShiftedArgs
+    |   RegisterShiftShiftedArgs -- ^ For Lsl, Lsr, Asr, Ror instruction
             ArmRegister -- ^ The rd register
             ArmRegister -- ^ The rm register
             ArmRegister -- ^ The rn register
