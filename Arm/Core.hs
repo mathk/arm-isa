@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Arm.Core (
+    ArmBlock,
     parseThumbStream, parseArmStream,
     parseThumbBlock, parseArmBlock,
     instructionsBlock, nextBlocks,

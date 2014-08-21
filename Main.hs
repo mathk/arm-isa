@@ -71,7 +71,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ [(displayElfTextSection value 0)])
+            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ [(displayElfTextSection w parseArmBlock value 0)])
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -146,16 +146,23 @@ displayElfCanvas info = do
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
 
-displayElfTextSection :: ELF.ELFInfo -> Int64 -> UI Element
-displayElfTextSection info offset =
+displayElfTextSection :: Window -> (Int64 -> B.ByteString -> ArmBlock) -> ELF.ELFInfo -> Int64 -> UI Element
+displayElfTextSection w parse info offset =
     let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
-        block = parseArmBlock offset stream
+        block = parse offset stream
         nextOffset = nextBlocks block
         instructions = instructionsBlock block
         instructionToUI armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + (offset+sectionOffset) of
             Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
             Nothing -> UI.p # set UI.text (show armInst)
-        toButton offset = UI.button #. "button" #+ [string $ printf "Next block at: 0x%08X" offset]
+        toButton offset = do
+            buttonArm <- UI.button #. "button" #+ [string $ printf "Next Arm at: 0x%08X" offset]
+            buttonThumb <- UI.button #. "button" #+ [string $ printf "Next Thumb at: 0x%08X" offset]
+            on UI.click buttonArm $ \_ -> do 
+                getBody w #+ [displayElfTextSection w parseArmBlock info offset]
+            on UI.click buttonThumb $ \_ -> do 
+                getBody w #+ [displayElfTextSection w parseThumbBlock info offset]
+            UI.div #+ [element buttonArm, UI.br, element buttonThumb]
         buttonNext = map toButton nextOffset
         title = UI.h4 # set UI.text (printf "Block at offset: %08X" (offset+sectionOffset))
         displayBlock = UI.div #+ map instructionToUI instructions
