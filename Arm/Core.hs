@@ -4,6 +4,7 @@ module Arm.Core (
     parseThumbStream, parseArmStream,
     parseThumbBlock, parseArmBlock,
     instructionsBlock, nextBlocks,
+    nextBlocksFromInstruction,
 )
 where
 
@@ -29,9 +30,12 @@ parseBlockStreamWhile :: InstructionStreamState m => (ArmInstr -> Bool) -> m Arm
 parseBlockStreamWhile test = do
     nextInstruction
     i <- parseInstruction
+    state <- decodingState
     if test i 
-    then ArmBlock <$> pure (return i) <*> (pure $ nextBlocksFromInstruction i) <*> decodingState
-    else ArmBlock <$> ((i:) <$> instructionsBlock <$> parseBlockStreamWhile test) <*> pure [] <*> decodingState
+    then ArmBlock <$> pure (return i) <*> (pure $ nextBlocksFromInstruction state i) <*> decodingState
+    else do 
+        block <- parseBlockStreamWhile test 
+        ArmBlock (i:instructionsBlock block) (nextBlocks block) <$> decodingState
 
 isBlockEnding :: ArmInstr -> Bool
 isBlockEnding ArmInstr {memonic=B} = True
@@ -49,10 +53,14 @@ isBlockEnding ArmInstr {args=(RegisterToRegisterArgs PC _)} = True
 isBlockEnding _ = False
 
 -- | Retrive the next block offset from an instruction
-nextBlocksFromInstruction :: ArmInstr -> [Int64]
---nextBlockFromInstruction ArmInstr {memonic=B, args=(BranchArgs imm)}
-nextBlocksFromInstruction _ = []
+nextBlocksFromInstruction :: InstructionState -> ArmInstr -> [Int64]
+nextBlocksFromInstruction state ArmInstr {sectionOffset=off, memonic=Blx, args=(BranchArgs imm)} = [nextPc off state, fromIntegral imm + nextPc off state]
+nextBlocksFromInstruction _ _ = []
 
+
+nextPc :: Int64 -> InstructionState -> Int64
+nextPc off ArmState = 8 + off
+nextPc off ThumbState = 4 + off
 
 parseThumbStream :: B.ByteString -> Int -> [ArmInstr]
 parseThumbStream s n = fst (runState (parseInstrStream n) (Thumb.initialState s))
