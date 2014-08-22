@@ -55,7 +55,9 @@ isBlockEnding _ = False
 
 -- | Retrive the next block offset from an instruction
 nextBlocksFromInstruction :: InstructionState -> ArmInstr -> [Int64]
-nextBlocksFromInstruction state ArmInstr {sectionOffset=off, memonic=Blx, args=(BranchArgs imm)} = [nextPc off state, fromIntegral imm + nextPc off state]
+nextBlocksFromInstruction state ArmInstr {sectionOffset=off, cond=CondAL, args=(BranchArgs imm)} = [fromIntegral imm + nextPc off state]
+nextBlocksFromInstruction state ArmInstr {sectionOffset=off, cond=Uncond, args=(BranchArgs imm)} = [fromIntegral imm + nextPc off state]
+nextBlocksFromInstruction state ArmInstr {sectionOffset=off, args=(BranchArgs imm)} = [nextPc off state, fromIntegral imm + nextPc off state]
 nextBlocksFromInstruction _ _ = []
 
 

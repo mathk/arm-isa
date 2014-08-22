@@ -409,12 +409,12 @@ parseSignMultiplyHalfArgument =
         instructionFlag 5
 
 parseBranchArgument :: ArmStreamState ArgumentsInstruction
-parseBranchArgument = (BranchArgs . (`shiftL` 2)) <$> instructionSignedExtendBits 0 24
+parseBranchArgument = (BranchArgs . fromIntegral . (`shiftL` 2)) <$> instructionSignedExtendBits 0 24
 
 parseUncondBranchArgument :: ArmStreamState ArgumentsInstruction
 parseUncondBranchArgument = do
     h <- instructionBits 24 1
-    (BranchArgs . (`shift` 1) . (+h) . (`shiftL` 1)) <$> instructionSignedExtendBits 0 24
+    (BranchArgs . fromIntegral . (`shift` 1) . (+h) . (`shiftL` 1)) <$> instructionSignedExtendBits 0 24
 
 parseBranchExchangeArgument :: ArmStreamState ArgumentsInstruction
 parseBranchExchangeArgument = BranchExchangeArgs <$> parseRegister 0

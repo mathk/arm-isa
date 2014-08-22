@@ -114,7 +114,7 @@ data ArgumentsInstruction =
             SRType      -- ^ Shift type
             Word32      -- ^ The value to shift
     |   BranchArgs
-            Word32      -- ^ Immediate value to branch
+            Int      -- ^ Immediate value to branch
     |   BranchExchangeArgs
             ArmRegister -- ^ The rm register
     |   CompareBranchArgs

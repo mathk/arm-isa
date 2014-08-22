@@ -675,15 +675,28 @@ parseLoadStoreImmediateUnprivilegedT1Args = LoadStoreImmediateArgs <$>
     pure True
 
 parseSupervisorImmediateT1Args :: ThumbStreamState ArgumentsInstruction
-parseSupervisorImmediateT1Args = BranchArgs <$> instructionBits 0 8
+parseSupervisorImmediateT1Args = (BranchArgs . fromIntegral) <$> instructionBits 0 8
 
 parseBranchImmediateT1Args :: ThumbStreamState ArgumentsInstruction
-parseBranchImmediateT1Args = BranchArgs <$> 
+parseBranchImmediateT1Args = (BranchArgs . fromIntegral) <$> 
     ((`shiftL` 1) <$> instructionSignedExtendBits 0 8)
 
 parseBranchImmediateT2Args :: ThumbStreamState ArgumentsInstruction
-parseBranchImmediateT2Args = BranchArgs <$> 
+parseBranchImmediateT2Args = (BranchArgs . fromIntegral) <$> 
     ((`shiftL` 1) <$> instructionSignedExtendBits 0 11)
+
+parseBranchImmediateT4Args :: ThumbStreamState ArgumentsInstruction
+parseBranchImmediateT4Args = (BranchArgs . fromIntegral) <$> decodeImmediateBranchT4 
+
+parseBranchImmediateT3Args :: ThumbStreamState ArgumentsInstruction
+parseBranchImmediateT3Args = (BranchArgs . fromIntegral) <$> decodeImmediateBranchT3 
+
+
+parseBranchLinkImmediateT1Args :: ThumbStreamState ArgumentsInstruction
+parseBranchLinkImmediateT1Args = (BranchArgs . fromIntegral) <$> decodeImmediateBranchT4
+
+parseBranchLinkImmediateT2Args :: ThumbStreamState ArgumentsInstruction
+parseBranchLinkImmediateT2Args = (BranchArgs . fromIntegral) <$> decodeImmediateBranchLinkT2
 
 parseSpecialBranchRegisterT1Args :: ThumbStreamState ArgumentsInstruction
 parseSpecialBranchRegisterT1Args = BranchExchangeArgs <$> parseRegister 3
@@ -861,19 +874,6 @@ parseImmediateMovPlainT3Args :: ThumbStreamState ArgumentsInstruction
 parseImmediateMovPlainT3Args = ImmediateMovArgs <$>
         parseRegister 8 <*>
         decodeImmediate16T1
-
-parseBranchImmediateT4Args :: ThumbStreamState ArgumentsInstruction
-parseBranchImmediateT4Args = BranchArgs <$> decodeImmediateBranchT4 
-
-parseBranchImmediateT3Args :: ThumbStreamState ArgumentsInstruction
-parseBranchImmediateT3Args = BranchArgs <$> decodeImmediateBranchT3 
-
-
-parseBranchLinkImmediateT1Args :: ThumbStreamState ArgumentsInstruction
-parseBranchLinkImmediateT1Args = BranchArgs <$> decodeImmediateBranchT4
-
-parseBranchLinkImmediateT2Args :: ThumbStreamState ArgumentsInstruction
-parseBranchLinkImmediateT2Args = BranchArgs <$> decodeImmediateBranchLinkT2
 
 parseShiftT2Args :: ThumbStreamState ArgumentsInstruction
 parseShiftT2Args = RegisterShiftShiftedArgs <$>
