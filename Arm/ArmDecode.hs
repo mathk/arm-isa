@@ -426,5 +426,5 @@ parseShiftArgument st = do
     Shift (st,imm)     <- decodeImmediateShift st <$> instructionBits 7 5
     return $ ShiftArgs regd regm imm
 
-initialState :: ByteString -> ArmStream 
-initialState s = ArmStream 0 s 0
+initialState :: Int64 -> ByteString -> ArmStream 
+initialState n s = ArmStream n s 0

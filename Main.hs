@@ -156,8 +156,8 @@ displayElfTextSection w parse info offset =
             Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
             Nothing -> UI.p # set UI.text (show armInst)
         toButton offset = do
-            buttonArm <- UI.button #. "button" #+ [string $ printf "Next Arm at: 0x%08X" offset]
-            buttonThumb <- UI.button #. "button" #+ [string $ printf "Next Thumb at: 0x%08X" offset]
+            buttonArm <- UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
+            buttonThumb <- UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
             on UI.click buttonArm $ \_ -> do 
                 getBody w #+ [displayElfTextSection w parseArmBlock info offset]
             on UI.click buttonThumb $ \_ -> do 

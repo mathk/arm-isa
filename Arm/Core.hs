@@ -66,19 +66,19 @@ nextPc off ArmState = 8 + off
 nextPc off ThumbState = 4 + off
 
 parseThumbStream :: B.ByteString -> Int -> [ArmInstr]
-parseThumbStream s n = fst (runState (parseInstrStream n) (Thumb.initialState s))
+parseThumbStream s n = fst (runState (parseInstrStream n) (Thumb.initialState 0 s))
 
 parseArmStream :: B.ByteString -> Int -> [ArmInstr]
-parseArmStream s n = fst (runState (parseInstrStream n) (Arm.initialState s))
+parseArmStream s n = fst (runState (parseInstrStream n) (Arm.initialState 0 s))
 
 parseBlock :: InstructionStreamState (State a) => (B.ByteString -> a) -> B.ByteString -> ArmBlock
 parseBlock init s = fst (runState (parseBlockStreamWhile isBlockEnding) (init s)) 
 
 parseThumbBlock :: Int64 -> B.ByteString -> ArmBlock
-parseThumbBlock n = (parseBlock Thumb.initialState) . (B.drop $ fromIntegral n)
+parseThumbBlock n = (parseBlock (Thumb.initialState n)) . (B.drop $ fromIntegral n)
 
 parseArmBlock :: Int64 -> B.ByteString -> ArmBlock
-parseArmBlock n = (parseBlock Arm.initialState) . (B.drop $ fromIntegral n)
+parseArmBlock n = (parseBlock (Arm.initialState n)) . (B.drop $ fromIntegral n)
 
 instructionsBlock :: ArmBlock -> [ArmInstr]
 instructionsBlock (ArmBlock lst _ _) = lst
