@@ -9,6 +9,7 @@ import System.IO
 import System.Console.GetOpt
 import Graphics.UI.Threepenny.Core
 import Control.Monad
+import Control.Monad.Reader
 import Data.Monoid
 import qualified Control.Monad.State as S
 import qualified Data.Map as Map
@@ -146,18 +147,27 @@ displayElfCanvas info = do
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
 
-makeNextBlockButton :: Window ->  ELF.ELFInfo -> Int64 -> UI Element
-makeNextBlockButton w info offset = do
-    buttonArm <- UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
-    buttonThumb <- UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
-    on UI.click buttonArm $ \_ -> do 
-            getBody w #+ [displayElfTextSection w parseArmBlock info offset]
-    on UI.click buttonThumb $ \_ -> do 
-        getBody w #+ [displayElfTextSection w parseThumbBlock info offset]
+type BlockGraph = ReaderT (Element,ELF.ELFInfo) UI
+
+askElement :: BlockGraph ()
+askElement = fst <$> ask
+
+askInfo :: BlockGraph ()
+askInfo = snd <$> ask
+
+makeNextBlockButton :: Int64 -> BlockGraph Element
+makeNextBlockButton offset = do
+    w <- askElement
+    buttonArm <- lift $ UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
+    buttonThumb <-lift $ UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
+    lift $on UI.click buttonArm $ \_ -> do 
+        element w #+ [displayElfTextSection parseArmBlock offset]
+    lift $ on UI.click buttonThumb $ \_ -> do 
+        element w #+ [displayElfTextSection parseThumbBlock offset]
     UI.div #+ [element buttonArm, UI.br, element buttonThumb]
     
 
-displayElfTextSection :: Window -> (Int64 -> B.ByteString -> ArmBlock) -> ELF.ELFInfo -> Int64 -> UI Element
+displayElfTextSection :: (Int64 -> B.ByteString -> ArmBlock) -> Int64 -> BlockGraph ()
 displayElfTextSection w parse info offset =
     let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
         block = parse offset stream
@@ -201,7 +211,6 @@ initialOffsetMap ((ELF.ELFSectionHeader {ELF.shoffset=off}):xs) maxOffset = Map.
     where
         initialPostion = normalizeY off maxOffset 
 
-
 sign :: Double -> Double
 sign a | a >= 0.0 = 1.0
        | a < 0.0 = -1.0
@@ -212,7 +221,6 @@ repulseForce origin distant preferedSign
     | d < 0 = (-(100.0 + d)) / 15.0
     | otherwise = (100.0 - d) / 15.0
     where d = origin - distant
-          
 
 simbling :: Map.Map Double Double -> Double -> Map.Map Double Double
 simbling mapOffset key = Map.filterWithKey checkRange mapOffset
@@ -286,5 +294,4 @@ displayElfHeaderOffset info =
             size = ELF.size info
             green = UI.solidColor $ UI.rgbColor 0x20 0xFF 0
             red = UI.solidColor $ UI.rgbColor 0xFF 0 0
- 
     
