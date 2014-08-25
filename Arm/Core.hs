@@ -38,6 +38,7 @@ parseBlockStreamWhile test = do
         block <- parseBlockStreamWhile test 
         ArmBlock (i:instructionsBlock block) (nextBlocks block) <$> decodingState
 
+-- | Tell is a block should end.
 isBlockEnding :: ArmInstr -> Bool
 isBlockEnding ArmInstr {memonic=B} = True
 isBlockEnding ArmInstr {memonic=Bx} = True
@@ -51,6 +52,8 @@ isBlockEnding ArmInstr {args=(RegisterShiftShiftedArgs PC _ _)} = True
 isBlockEnding ArmInstr {args=(RegisterShiftedMvnArgs PC _ _ _)} = True
 isBlockEnding ArmInstr {args=(RegisterArgs _ PC _ _ _)} = True
 isBlockEnding ArmInstr {args=(RegisterToRegisterArgs PC _)} = True
+isBlockEnding (Undefined _ _) = True
+isBlockEnding NotParsed = True
 isBlockEnding _ = False
 
 -- | Retrive the next block offset from an instruction

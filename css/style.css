@@ -2,7 +2,8 @@ body {
     font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
 }
 
-p {
+h1,h2,h3,h4,p {
     margin: 0px;
     padding: 0px;
 }
+

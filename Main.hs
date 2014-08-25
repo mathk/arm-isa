@@ -146,24 +146,26 @@ displayElfCanvas info = do
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
 
+makeNextBlockButton :: Window ->  ELF.ELFInfo -> Int64 -> UI Element
+makeNextBlockButton w info offset = do
+    buttonArm <- UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
+    buttonThumb <- UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
+    on UI.click buttonArm $ \_ -> do 
+            getBody w #+ [displayElfTextSection w parseArmBlock info offset]
+    on UI.click buttonThumb $ \_ -> do 
+        getBody w #+ [displayElfTextSection w parseThumbBlock info offset]
+    UI.div #+ [element buttonArm, UI.br, element buttonThumb]
+    
+
 displayElfTextSection :: Window -> (Int64 -> B.ByteString -> ArmBlock) -> ELF.ELFInfo -> Int64 -> UI Element
 displayElfTextSection w parse info offset =
     let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
         block = parse offset stream
-        nextOffset = nextBlocks block
         instructions = instructionsBlock block
         instructionToUI armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + (offset+sectionOffset) of
             Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
             Nothing -> UI.p # set UI.text (show armInst)
-        toButton offset = do
-            buttonArm <- UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
-            buttonThumb <- UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
-            on UI.click buttonArm $ \_ -> do 
-                getBody w #+ [displayElfTextSection w parseArmBlock info offset]
-            on UI.click buttonThumb $ \_ -> do 
-                getBody w #+ [displayElfTextSection w parseThumbBlock info offset]
-            UI.div #+ [element buttonArm, UI.br, element buttonThumb]
-        buttonNext = map toButton nextOffset
+        buttonNext = map (makeNextBlockButton w info) (nextBlocks block)
         title = UI.h4 # set UI.text (printf "Block at offset: %08X" (offset+sectionOffset))
         displayBlock = UI.div #+ map instructionToUI instructions
     in grid [[title], [displayBlock], buttonNext]
