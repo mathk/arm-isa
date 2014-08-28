@@ -11,6 +11,7 @@ import Graphics.UI.Threepenny.Core
 import Control.Monad
 import Control.Monad.Reader
 import Data.Monoid
+import Data.IORef
 import qualified Control.Monad.State as S
 import qualified Data.Map as Map
 import Text.Printf
@@ -77,13 +78,19 @@ setup w = do
             element body #+ [element div]
             width <- body # get elementWidth
             height <- body # get elementHeight
+            out  <- UI.span # set text "Coordinates: "
             element div # set text (printf "(%d,%d)" width height)
+            mousePosition <- liftIO $ newIORef (0,0)
+            canvas <- UI.div #. "asm-block" #+ [element out]
+            on UI.mousemove body $ \xy -> do
+                element out # set text ("Coordinates:" ++ show xy)
+                liftIO $ writeIORef mousePosition xy
             on (domEvent "resize") body $ \_ -> do 
                 width <- body # get elementWidth
                 height <- body # get elementHeight
                 element div # set text (printf "(%d,%d)" width height)
-            element body #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value] -})
-            runReaderT (displayElfTextSection parseArmBlock 0) (body,value)
+            element body #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value) ++ [element canvas]) {-++ [displayElfCanvas value] -})
+            runReaderT (displayElfTextSection parseArmBlock 0) (canvas,value,mousePosition)
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -158,30 +165,42 @@ displayElfCanvas info = do
         -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
     element canvas
 
-type BlockGraph = ReaderT (Element,ELF.ELFInfo) UI
+type MousePositionRef = IORef (Int,Int)
+type BlockGraph = ReaderT (Element,ELF.ELFInfo,MousePositionRef) UI
 
 askElement :: BlockGraph Element
-askElement = fst <$> ask
+askElement = do 
+    (e,_,_) <- ask
+    return e
 
 askInfo :: BlockGraph ELF.ELFInfo
-askInfo = snd <$> ask
+askInfo =  do
+    (_,i,_) <- ask
+    return i
+
+askMousePosition ::  BlockGraph MousePositionRef
+askMousePosition = do
+    (_,_,p) <- ask
+    return p
 
 makeNextBlockButton :: Int64 -> BlockGraph Element
 makeNextBlockButton offset = do
     w <- askElement
     info <- askInfo
+    p <- askMousePosition
     buttonArm <- lift $ UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
     buttonThumb <-lift $ UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
     lift $ (on UI.click buttonArm $ \_ -> do 
-        runReaderT (displayElfTextSection parseArmBlock offset) (w,info))
+        runReaderT (displayElfTextSection parseArmBlock offset) (w,info,p))
     lift $ (on UI.click buttonThumb $ \_ -> do 
-        runReaderT (displayElfTextSection parseThumbBlock offset) (w,info))
+        runReaderT (displayElfTextSection parseThumbBlock offset) (w,info,p))
     lift $ UI.div #+ [element buttonArm, UI.br, element buttonThumb]
     
 
 displayElfTextSection :: (Int64 -> B.ByteString -> ArmBlock) -> Int64 -> BlockGraph ()
 displayElfTextSection parse offset = do
-    info <- askInfo 
+    info <- askInfo
+    mouseP <- askMousePosition 
     let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
     let block = parse offset stream
     let instructions = instructionsBlock block
@@ -192,7 +211,12 @@ displayElfTextSection parse offset = do
     title <- lift $ UI.h4 # set UI.text (printf "Block at offset: %08X" (offset+sectionOffset))
     displayBlock <- lift $ UI.div #+ map instructionToUI instructions
     body <- askElement
-    lift $ element body #+ [grid [[element title], [element displayBlock], fmap element buttonNext]]
+    gridElem <- lift $ grid [[element title], [element displayBlock], fmap element buttonNext]
+    lift $ element gridElem # set UI.draggable True
+    lift $ (on UI.drag gridElem $ \_ -> do
+            (x,y) <- liftIO $ readIORef mouseP
+            element body #+ [string (printf "(%d,%d)" x y)])
+    lift $ element body #+ [element gridElem]
     return ()
     
 {------------------------------------------------------------------------------

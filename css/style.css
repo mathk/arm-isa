@@ -1,3 +1,9 @@
+.asm-block {
+    display: inline-block;
+    height: 1500px;
+    width: 1500px;
+}
+
 body {
     font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
 }
