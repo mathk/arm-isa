@@ -72,7 +72,18 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
-            getBody w #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value]-} ++ [(displayElfTextSection w parseArmBlock value 0)])
+            div <- UI.div
+            body <- getBody w
+            element body #+ [element div]
+            width <- body # get elementWidth
+            height <- body # get elementHeight
+            element div # set text (printf "(%d,%d)" width height)
+            on (domEvent "resize") body $ \_ -> do 
+                width <- body # get elementWidth
+                height <- body # get elementHeight
+                element div # set text (printf "(%d,%d)" width height)
+            element body #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value)) {-++ [displayElfCanvas value] -})
+            runReaderT (displayElfTextSection parseArmBlock 0) (body,value)
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -149,37 +160,41 @@ displayElfCanvas info = do
 
 type BlockGraph = ReaderT (Element,ELF.ELFInfo) UI
 
-askElement :: BlockGraph ()
+askElement :: BlockGraph Element
 askElement = fst <$> ask
 
-askInfo :: BlockGraph ()
+askInfo :: BlockGraph ELF.ELFInfo
 askInfo = snd <$> ask
 
 makeNextBlockButton :: Int64 -> BlockGraph Element
 makeNextBlockButton offset = do
     w <- askElement
+    info <- askInfo
     buttonArm <- lift $ UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
     buttonThumb <-lift $ UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
-    lift $on UI.click buttonArm $ \_ -> do 
-        element w #+ [displayElfTextSection parseArmBlock offset]
-    lift $ on UI.click buttonThumb $ \_ -> do 
-        element w #+ [displayElfTextSection parseThumbBlock offset]
-    UI.div #+ [element buttonArm, UI.br, element buttonThumb]
+    lift $ (on UI.click buttonArm $ \_ -> do 
+        runReaderT (displayElfTextSection parseArmBlock offset) (w,info))
+    lift $ (on UI.click buttonThumb $ \_ -> do 
+        runReaderT (displayElfTextSection parseThumbBlock offset) (w,info))
+    lift $ UI.div #+ [element buttonArm, UI.br, element buttonThumb]
     
 
 displayElfTextSection :: (Int64 -> B.ByteString -> ArmBlock) -> Int64 -> BlockGraph ()
-displayElfTextSection w parse info offset =
+displayElfTextSection parse offset = do
+    info <- askInfo 
     let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
-        block = parse offset stream
-        instructions = instructionsBlock block
-        instructionToUI armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + (offset+sectionOffset) of
+    let block = parse offset stream
+    let instructions = instructionsBlock block
+    let instructionToUI armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + (offset+sectionOffset) of
             Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
             Nothing -> UI.p # set UI.text (show armInst)
-        buttonNext = map (makeNextBlockButton w info) (nextBlocks block)
-        title = UI.h4 # set UI.text (printf "Block at offset: %08X" (offset+sectionOffset))
-        displayBlock = UI.div #+ map instructionToUI instructions
-    in grid [[title], [displayBlock], buttonNext]
-        
+    buttonNext <- sequence $ map makeNextBlockButton (nextBlocks block)
+    title <- lift $ UI.h4 # set UI.text (printf "Block at offset: %08X" (offset+sectionOffset))
+    displayBlock <- lift $ UI.div #+ map instructionToUI instructions
+    body <- askElement
+    lift $ element body #+ [grid [[element title], [element displayBlock], fmap element buttonNext]]
+    return ()
+    
 {------------------------------------------------------------------------------
  - Drawing  canvas with all the different section
  -----------------------------------------------------------------------------}
