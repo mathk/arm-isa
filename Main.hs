@@ -66,6 +66,9 @@ main = do
                         GetSections -> putStrLn $ show (ELF.sections value)
                 Left d -> putStrLn d
 
+draggable :: Element -> UI ()
+draggable e = runFunction $ ffi "$(%1).draggable()" e
+
 setup :: Window -> UI ()
 setup w = do
     return w # set UI.title "ELF Parser"
@@ -74,6 +77,10 @@ setup w = do
     case ELF.parse ELF.parseFile input of
         Right value -> do
             div <- UI.div
+            js <- UI.mkElement "script"  # 
+                    set (UI.attr "src") "/static/js/jquery-ui.js" #
+                    set (UI.attr "type") "text/javascript"
+            getHead w #+ [element js]
             body <- getBody w
             element body #+ [element div]
             width <- body # get elementWidth
@@ -202,10 +209,13 @@ displayElfTextSection parse offset = do
     body <- askElement
     gridElem <- lift $ grid [[element title], [element displayBlock], fmap element buttonNext]
     lift $ element gridElem # set UI.draggable True
-    lift $ (on UI.drag gridElem $ \(_,(x,y)) -> do
+    lift $ draggable gridElem
+    {-- lift $ (on UI.drag gridElem $ \(_,(x,y)) -> do
             --debug ("drag called" ++ show e)
-            element gridElem # set style [("top", printf "%dpx" y),("left", printf "%dpx" x)]
-            )
+            if x == 0 && y == 0 
+            then return gridElem
+            else (element gridElem # set style [("top", printf "%dpx" y),("left", printf "%dpx" x)])
+            ) --}
     lift $ element body #+ [element gridElem]
     return ()
     
