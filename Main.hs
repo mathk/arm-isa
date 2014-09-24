@@ -85,9 +85,8 @@ setup w = do
             element body #+ [element div]
             width <- body # get elementWidth
             height <- body # get elementHeight
-            out  <- UI.span # set text "Coordinates: "
             element div # set text (printf "(%d,%d)" width height)
-            canvas <- UI.div #. "asm-block" #+ [element out]
+            canvas <- UI.div #. "asm-block"
             on (domEvent "resize") body $ \_ -> do 
                 width <- body # get elementWidth
                 height <- body # get elementHeight
@@ -210,12 +209,6 @@ displayElfTextSection parse offset = do
     gridElem <- lift $ grid [[element title], [element displayBlock], fmap element buttonNext]
     lift $ element gridElem # set UI.draggable True
     lift $ draggable gridElem
-    {-- lift $ (on UI.drag gridElem $ \(_,(x,y)) -> do
-            --debug ("drag called" ++ show e)
-            if x == 0 && y == 0 
-            then return gridElem
-            else (element gridElem # set style [("top", printf "%dpx" y),("left", printf "%dpx" x)])
-            ) --}
     lift $ element body #+ [element gridElem]
     return ()
     
