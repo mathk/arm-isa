@@ -66,8 +66,31 @@ main = do
                         GetSections -> putStrLn $ show (ELF.sections value)
                 Left d -> putStrLn d
 
+{--
+ - Make an element draggable
+ --}
 draggable :: Element -> UI ()
-draggable e = runFunction $ ffi "$(%1).draggable()" e
+draggable e = runFunction $ ffi "jsPlumb.getInstance().draggable($(%1))" e
+
+{--
+ - Connect ui element
+ --}
+connect :: Element -> Element  -> UI ()
+connect s t = runFunction $ ffi "jsPlumb.getInstance().connect({source:$(%1), target: $(%2)})" s t
+
+{--
+ - Add all the javascript required
+ --}
+setupJavascript :: Window -> UI ()
+setupJavascript w = do
+        js1 <- UI.mkElement "script"  # 
+                set (UI.attr "src") "/static/js/jquery-ui.js" #
+                set (UI.attr "type") "text/javascript"
+        js2 <- UI.mkElement "script"  # 
+                set (UI.attr "src") "/static/js/jquery.jsPlumb-1.6.4-min.js" #
+                set (UI.attr "type") "text/javascript"
+        getHead w #+ [element js1, element js2]
+
 
 setup :: Window -> UI ()
 setup w = do
@@ -76,11 +99,8 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
+            setupJavascript w
             div <- UI.div
-            js <- UI.mkElement "script"  # 
-                    set (UI.attr "src") "/static/js/jquery-ui.js" #
-                    set (UI.attr "type") "text/javascript"
-            getHead w #+ [element js]
             body <- getBody w
             element body #+ [element div]
             width <- body # get elementWidth
@@ -206,9 +226,9 @@ displayElfTextSection parse offset = do
     title <- lift $ UI.h4 # set UI.text (printf "Block at offset: %08X" (offset+sectionOffset))
     displayBlock <- lift $ UI.div #+ map instructionToUI instructions
     body <- askElement
-    gridElem <- lift $ grid [[element title], [element displayBlock], fmap element buttonNext]
+    gridElem <- lift $ grid [[element title], [element displayBlock], fmap element buttonNext] # set (UI.attr "id") (printf "block%d" offset)
     lift $ element gridElem # set UI.draggable True
-    lift $ draggable gridElem
+    {-- lift $ draggable gridElem --}
     lift $ element body #+ [element gridElem]
     return ()
     
