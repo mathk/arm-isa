@@ -81,7 +81,7 @@ connect s t = runFunction $ ffi "jsPlumb.getInstance().connect({source:$(%1), ta
 {--
  - Add all the javascript required
  --}
-setupJavascript :: Window -> UI ()
+setupJavascript :: Window -> UI Element
 setupJavascript w = do
         js1 <- UI.mkElement "script"  # 
                 set (UI.attr "src") "/static/js/jquery-ui.js" #
@@ -166,27 +166,6 @@ displayElfHeader ELF.ELFHeader {
         UI.ddef # set UI.text "e_shstrndx",
         UI.dterm # set UI.text (show shsi)]]
 
-
-displayElfCanvas :: ELF.ELFInfo -> UI Element
-displayElfCanvas info = do
-    canvas <- UI.canvas #
-                    set UI.height 1700 # 
-                    set UI.width 600 # 
-                    set style [("border", "solid black 1px")]
-    UI.renderDrawing canvas (
-        (UI.translate 0.0 50.0) <> 
-        --(UI.scale 300.0 (-1600.0)) <> 
-        (displayElfHeaderOffset info))
-        --(UI.openedPath red 0.001
-        --    ((UI.translate 150.0 1600.0) <>
-        --    (UI.scale 150.0 (-1600.0)) <>
-        --    (displayElfHeaderOffset info)) )
-        --    (UI.line (-1.0,0.9) (1.0,0.9))))
-            --(UI.move (150.0,100.0)) <>
-            --(UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
-        -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
-    element canvas
-
 type MousePositionRef = IORef (Int,Int)
 type BlockGraph = ReaderT (Element,ELF.ELFInfo) UI
 
@@ -235,6 +214,29 @@ displayElfTextSection parse offset = do
 {------------------------------------------------------------------------------
  - Drawing  canvas with all the different section
  -----------------------------------------------------------------------------}
+{-- Using a canvas modified version of threepenny
+
+
+displayElfCanvas :: ELF.ELFInfo -> UI Element
+displayElfCanvas info = do
+    canvas <- UI.canvas #
+                    set UI.height 1700 # 
+                    set UI.width 600 # 
+                    set style [("border", "solid black 1px")]
+    UI.renderDrawing canvas (
+        (UI.translate 0.0 50.0) <> 
+        --(UI.scale 300.0 (-1600.0)) <> 
+        (displayElfHeaderOffset info))
+        --(UI.openedPath red 0.001
+        --    ((UI.translate 150.0 1600.0) <>
+        --    (UI.scale 150.0 (-1600.0)) <>
+        --    (displayElfHeaderOffset info)) )
+        --    (UI.line (-1.0,0.9) (1.0,0.9))))
+            --(UI.move (150.0,100.0)) <>
+            --(UI.bezierCurve [(180.0,30.0), (250.0,180.0), (300.0,100.0)]))) <>
+        -- (UI.openedPath red 4.0 (UI.arc (125.0, 115.0) 30.0 0.0 360.0)))
+    element canvas
+
 normalizeY :: Int64 -> Int -> Double
 normalizeY value max= (((fromIntegral value) * 1640.0) / (fromIntegral max)) 
 
@@ -346,4 +348,6 @@ displayElfHeaderOffset info =
             size = ELF.size info
             green = UI.solidColor $ UI.rgbColor 0x20 0xFF 0
             red = UI.solidColor $ UI.rgbColor 0xFF 0 0
+
     
+--}
