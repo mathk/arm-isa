@@ -107,10 +107,10 @@ setup w = do
             height <- body # get elementHeight
             element div # set text (printf "(%d,%d)" width height)
             canvas <- UI.div #. "asm-block"
-            on (domEvent "resize") body $ \_ -> do 
+            {--on (domEvent "resize") body $ \_ -> do 
                 width <- body # get elementWidth
                 height <- body # get elementHeight
-                element div # set text (printf "(%d,%d)" width height)
+                element div # set text (printf "(%d,%d)" width height)--}
             element body #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value) ++ [element canvas]) {-++ [displayElfCanvas value] -})
             runReaderT (displayElfTextSection parseArmBlock 0) (canvas,value)
             return ()
