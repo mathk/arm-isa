@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/mathk/arm-isa.png)](https://travis-ci.org/mathk/arm-is)
+
 ArmIsa
 =======
 

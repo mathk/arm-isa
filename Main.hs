@@ -103,9 +103,6 @@ setup w = do
             div <- UI.div
             body <- getBody w
             element body #+ [element div]
-            width <- body # get elementWidth
-            height <- body # get elementHeight
-            element div # set text (printf "(%d,%d)" width height)
             canvas <- UI.div #. "asm-block"
             {--on (domEvent "resize") body $ \_ -> do 
                 width <- body # get elementWidth
