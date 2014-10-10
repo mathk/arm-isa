@@ -209,7 +209,12 @@ displayElfTextSection block = do
     lift $ element body #+ [element gridElem]
     return ()
 
--- displayInstruction :: ArmInstr -> UI Element
+displayInstruction :: ArmInstr -> Int64 -> BlockGraph Element
+displayInstruction inst sectionOffset = do
+    info <- askInfo
+    case ELF.symbolAt info $ (armInstructionOffset inst) + sectionOffset of
+        Just s -> lift $ UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show inst)]
+        Nothing -> lift $ UI.p # set UI.text (show inst)
     
 {------------------------------------------------------------------------------
  - Drawing  canvas with all the different section
