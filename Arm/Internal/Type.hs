@@ -41,7 +41,7 @@ data ArmInstr =
 
 data InstructionState = ThumbState | ArmState
 
-data ArmBlock = ArmBlock { block :: [ArmInstr], next :: [Int64], parseState :: InstructionState}
+data ArmBlock = ArmBlock { offset :: Int64, block :: [ArmInstr], next :: [Int64], parseState :: InstructionState}
 
 newtype Shift = Shift (SRType, Word32)
 

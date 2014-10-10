@@ -4,7 +4,7 @@ module Arm.Core (
     ArmBlock,
     parseThumbStream, parseArmStream,
     parseThumbBlock, parseArmBlock,
-    instructionsBlock, nextBlocks,
+    instructionsBlock, nextBlocks, offsetBlock,
     nextBlocksFromInstruction,
 )
 where
@@ -33,10 +33,10 @@ parseBlockStreamWhile test = do
     i <- parseInstruction
     state <- decodingState
     if test i 
-    then ArmBlock <$> pure (return i) <*> (pure $ nextBlocksFromInstruction state i) <*> decodingState
+    then return $ ArmBlock (sectionOffset i)  [i] (nextBlocksFromInstruction state i) state
     else do 
         block <- parseBlockStreamWhile test 
-        ArmBlock (i:instructionsBlock block) (nextBlocks block) <$> decodingState
+        ArmBlock (sectionOffset i) (i:instructionsBlock block) (nextBlocks block) <$> decodingState
 
 -- | Tell is a block should end.
 isBlockEnding :: ArmInstr -> Bool
@@ -84,7 +84,10 @@ parseArmBlock :: Int64 -> B.ByteString -> ArmBlock
 parseArmBlock n = (parseBlock (Arm.initialState n)) . (B.drop $ fromIntegral n)
 
 instructionsBlock :: ArmBlock -> [ArmInstr]
-instructionsBlock (ArmBlock lst _ _) = lst
+instructionsBlock (ArmBlock _ lst _ _) = lst
+
+offsetBlock :: ArmBlock -> Int64
+offsetBlock (ArmBlock off _ _ _) = off
 
 nextBlocks :: ArmBlock -> [Int64]
-nextBlocks (ArmBlock _ lst _) = lst
+nextBlocks (ArmBlock _ _ lst _) = lst

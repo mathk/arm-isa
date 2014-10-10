@@ -99,6 +99,7 @@ setup w = do
     input <- liftIO $ B.readFile "linker"
     case ELF.parse ELF.parseFile input of
         Right value -> do
+            let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" value
             setupJavascript w
             div <- UI.div
             body <- getBody w
@@ -109,7 +110,7 @@ setup w = do
                 height <- body # get elementHeight
                 element div # set text (printf "(%d,%d)" width height)--}
             element body #+ ((UI.h1 # set UI.text "ELF Header") : (displayElfHeader (ELF.header value) ++ [element canvas]) {-++ [displayElfCanvas value] -})
-            runReaderT (displayElfTextSection parseArmBlock 0) (canvas,value)
+            runReaderT (displayElfTextSection (parseArmBlock 0 stream)) (canvas,value)
             return ()
         Left d -> do
             getBody w #+ [UI.h1 # set UI.text ("Error while parsing: " ++ d)]
@@ -163,7 +164,6 @@ displayElfHeader ELF.ELFHeader {
         UI.ddef # set UI.text "e_shstrndx",
         UI.dterm # set UI.text (show shsi)]]
 
-type MousePositionRef = IORef (Int,Int)
 type BlockGraph = ReaderT (Element,ELF.ELFInfo) UI
 
 askElement :: BlockGraph Element
@@ -178,22 +178,23 @@ askInfo =  do
 
 makeNextBlockButton :: Int64 -> BlockGraph Element
 makeNextBlockButton offset = do
-    w <- askElement
     info <- askInfo
+    let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
+    w <- askElement
     buttonArm <- lift $ UI.button #. "button" #+ [string $ printf "Next Arm at: %d" offset]
     buttonThumb <-lift $ UI.button #. "button" #+ [string $ printf "Next Thumb at: %d" offset]
     lift $ (on UI.click buttonArm $ \_ -> do 
-        runReaderT (displayElfTextSection parseArmBlock offset) (w,info))
+        runReaderT (displayElfTextSection $ parseArmBlock offset stream) (w,info))
     lift $ (on UI.click buttonThumb $ \_ -> do 
-        runReaderT (displayElfTextSection parseThumbBlock offset) (w,info))
+        runReaderT (displayElfTextSection $ parseThumbBlock offset stream) (w,info))
     lift $ UI.div #+ [element buttonArm, UI.br, element buttonThumb]
     
 
-displayElfTextSection :: (Int64 -> B.ByteString -> ArmBlock) -> Int64 -> BlockGraph ()
-displayElfTextSection parse offset = do
+displayElfTextSection :: ArmBlock -> BlockGraph ()
+displayElfTextSection block = do
     info <- askInfo
+    let offset = offsetBlock block
     let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
-    let block = parse offset stream
     let instructions = instructionsBlock block
     let instructionToUI armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + (offset+sectionOffset) of
             Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
@@ -207,6 +208,8 @@ displayElfTextSection parse offset = do
     {-- lift $ draggable gridElem --}
     lift $ element body #+ [element gridElem]
     return ()
+
+-- displayInstruction :: ArmInstr -> UI Element
     
 {------------------------------------------------------------------------------
  - Drawing  canvas with all the different section
