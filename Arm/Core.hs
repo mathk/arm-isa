@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Arm.Core (
-    ArmBlock,
+    ArmBlock, ArmInstr,
     parseThumbStream, parseArmStream,
     parseThumbBlock, parseArmBlock,
     instructionsBlock, nextBlocks, offsetBlock,
@@ -33,10 +33,10 @@ parseBlockStreamWhile test = do
     i <- parseInstruction
     state <- decodingState
     if test i 
-    then return $ ArmBlock (sectionOffset i)  [i] (nextBlocksFromInstruction state i) state
+    then return $ ArmBlock (blockOffset i)  [i] (nextBlocksFromInstruction state i) state
     else do 
         block <- parseBlockStreamWhile test 
-        ArmBlock (sectionOffset i) (i:instructionsBlock block) (nextBlocks block) <$> decodingState
+        ArmBlock (blockOffset i) (i:instructionsBlock block) (nextBlocks block) <$> decodingState
 
 -- | Tell is a block should end.
 isBlockEnding :: ArmInstr -> Bool
@@ -58,9 +58,9 @@ isBlockEnding _ = False
 
 -- | Retrive the next block offset from an instruction
 nextBlocksFromInstruction :: InstructionState -> ArmInstr -> [Int64]
-nextBlocksFromInstruction state ArmInstr {sectionOffset=off, cond=CondAL, args=(BranchArgs imm)} = [fromIntegral imm + nextPc off state]
-nextBlocksFromInstruction state ArmInstr {sectionOffset=off, cond=Uncond, args=(BranchArgs imm)} = [fromIntegral imm + nextPc off state]
-nextBlocksFromInstruction state ArmInstr {sectionOffset=off, args=(BranchArgs imm)} = [nextPc off state, fromIntegral imm + nextPc off state]
+nextBlocksFromInstruction state ArmInstr {blockOffset=off, cond=CondAL, args=(BranchArgs imm)} = [fromIntegral imm + nextPc off state]
+nextBlocksFromInstruction state ArmInstr {blockOffset=off, cond=Uncond, args=(BranchArgs imm)} = [fromIntegral imm + nextPc off state]
+nextBlocksFromInstruction state ArmInstr {blockOffset=off, args=(BranchArgs imm)} = [nextPc off state, fromIntegral imm + nextPc off state]
 nextBlocksFromInstruction _ _ = []
 
 

@@ -35,13 +35,13 @@ data ArmRegister = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | FP | 
     deriving (Show,Eq)
 
 data ArmInstr = 
-          ArmInstr {sectionOffset :: Int64, code :: Word32, cond :: Cond, memonic :: InstrClass, isFlags :: Bool, args :: ArgumentsInstruction  } 
+          ArmInstr {blockOffset :: Int64, code :: Word32, cond :: Cond, memonic :: InstrClass, isFlags :: Bool, args :: ArgumentsInstruction  } 
         | NotParsed
         | Undefined Int64 Word32
 
 data InstructionState = ThumbState | ArmState
 
-data ArmBlock = ArmBlock { offset :: Int64, block :: [ArmInstr], next :: [Int64], parseState :: InstructionState}
+data ArmBlock = ArmBlock { sectionOffset :: Int64, block :: [ArmInstr], next :: [Int64], parseState :: InstructionState}
 
 newtype Shift = Shift (SRType, Word32)
 
@@ -306,9 +306,9 @@ instance Show SRType where
     show ROR = "ror"
 
 instance Show ArmInstr where
-    show ArmInstr {sectionOffset=off, code=co, cond=c,memonic=m, isFlags=flgs, args=arguments} = printf "%08X: %08X %s%s %s" off co (show m) (show c) (show arguments)
+    show ArmInstr {blockOffset=off, code=co, cond=c,memonic=m, isFlags=flgs, args=arguments} = printf "%08X: %08X %s%s %s" off co (show m) (show c) (show arguments)
     show NotParsed = "Unknown"
-    show (Undefined sectionOffset code) = printf "%08X: %08X Undefined" sectionOffset code
+    show (Undefined blockOffset code) = printf "%08X: %08X Undefined" blockOffset code
 
 instance Show Cond where
     show CondEQ = ".eq"

@@ -196,12 +196,10 @@ displayElfTextSection block = do
     let offset = offsetBlock block
     let Just (ELF.BinarySection sectionOffset stream) = ELF.sectionFromName ".text" info
     let instructions = instructionsBlock block
-    let instructionToUI armInst = case ELF.symbolAt info $ (armInstructionOffset armInst) + (offset+sectionOffset) of
-            Just s -> UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show armInst)]
-            Nothing -> UI.p # set UI.text (show armInst)
     buttonNext <- sequence $ map makeNextBlockButton (nextBlocks block)
     title <- lift $ UI.h4 # set UI.text (printf "Block at offset: %08X" (offset+sectionOffset))
-    displayBlock <- lift $ UI.div #+ map instructionToUI instructions
+    listInstruction <- sequence $ map (displayInstruction (offset + sectionOffset)) instructions
+    displayBlock <- lift $ UI.div #+ listInstruction
     body <- askElement
     gridElem <- lift $ grid [[element title], [element displayBlock], fmap element buttonNext] # set (UI.attr "id") (printf "block%d" offset)
     lift $ element gridElem # set UI.draggable True
@@ -209,12 +207,12 @@ displayElfTextSection block = do
     lift $ element body #+ [element gridElem]
     return ()
 
-displayInstruction :: ArmInstr -> Int64 -> BlockGraph Element
-displayInstruction inst sectionOffset = do
+displayInstruction :: Int64 -> ArmInstr -> BlockGraph (UI Element)
+displayInstruction sectionOffset inst = do
     info <- askInfo
-    case ELF.symbolAt info $ (armInstructionOffset inst) + sectionOffset of
-        Just s -> lift $ UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show inst)]
-        Nothing -> lift $ UI.p # set UI.text (show inst)
+    case ELF.symbolAt info $ (instructionBlockOffset inst) + sectionOffset of
+        Just s -> return $ UI.p #+ [string (ELF.symbolName s), string ":", UI.br, string (show inst)]
+        Nothing -> return $ UI.p # set UI.text (show inst)
     
 {------------------------------------------------------------------------------
  - Drawing  canvas with all the different section
